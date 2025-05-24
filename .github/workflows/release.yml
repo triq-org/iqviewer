@@ -1,0 +1,173 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release_job:
+    name: Create release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      release_version: ${{ env.RELEASE_VERSION }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create Release info
+        # e.g. refs/tags/0.1
+        run: |
+          echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
+      - uses: softprops/action-gh-release@v2
+        id: create_release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          draft: true
+          prerelease: true
+
+  macos_job:
+    needs: release_job
+    runs-on: macos-13
+    name: Build on macOS
+    env:
+      NAME: IQViewer
+    steps:
+      - name: Versions
+        run: |
+          cargo --version
+          rustc --version
+      - uses: actions/checkout@v4
+      - name: Install rust targets
+        run: rustup target add x86_64-apple-darwin aarch64-apple-darwin
+      - name: Build
+        run: ./build-macos.sh
+      - name: Upload Release Asset
+        working-directory: target/release/macos-iqviewer
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ needs.release_job.outputs.release_version }} ${{ env.NAME }}.dmg
+
+  ubuntu_job:
+    needs: release_job
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - aarch64-unknown-linux-gnu
+          - armv7-unknown-linux-gnueabihf
+          - x86_64-pc-windows-gnu
+        include:
+          - target: x86_64-unknown-linux-gnu
+            name: Linux-amd64
+          - target: aarch64-unknown-linux-gnu
+            name: Linux-arm64
+          - target: armv7-unknown-linux-gnueabihf
+            name: Linux-armv7
+          - target: x86_64-pc-windows-gnu
+            name: Windows-x64
+    runs-on: ubuntu-latest
+    name: Build for ${{ matrix.target }}
+    env:
+      NAME: IQViewer
+      TARGET: ${{ matrix.target }}
+    steps:
+      - name: Versions
+        run: |
+          cargo --version
+          rustc --version
+      - uses: actions/checkout@v4
+      - name: Install and configure dependencies
+        run: |
+          sudo apt-get install -qq crossbuild-essential-arm64 crossbuild-essential-armhf mingw-w64
+          # some additional configuration for cross-compilation on linux
+          cat >>~/.cargo/config.toml <<EOF
+          [target.aarch64-unknown-linux-gnu]
+          linker = "aarch64-linux-gnu-gcc"
+          [target.armv7-unknown-linux-gnueabihf]
+          linker = "arm-linux-gnueabihf-gcc"
+          [target.x86_64-pc-windows-gnu]
+          linker = "/usr/bin/x86_64-w64-mingw32-gcc"
+          EOF
+      - name: Install rust target
+        run: rustup target add $TARGET
+      - name: Run build
+        run: cargo build --release --verbose --target $TARGET
+      - name: Upload Release Asset
+        working-directory: target/${{ matrix.target }}/release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXEC_BIN: ${{ env.NAME }}
+          ZIP_FILE: ${{ env.NAME }}-${{ matrix.name }}.zip
+        run: |
+          # $TARGET-strip $EXEC_BIN{,.exe}
+          zip --junk-paths $ZIP_FILE $EXEC_BIN{,.exe}
+          gh release upload ${{ needs.release_job.outputs.release_version }} $ZIP_FILE
+
+  netbsd_job:
+    needs: release_job
+    runs-on: ubuntu-latest
+    name: Build for NetBSD
+    env:
+      NAME: IQViewer
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile in NetBSD on amd64
+        id: netbsd-vm
+        uses: vmactions/netbsd-vm@v1
+        with:
+          usesh: true
+          prepare: |
+            /usr/sbin/pkg_add curl
+          run: |
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            . "$HOME/.cargo/env"
+            cargo --version
+            rustc --version
+            cargo build --release --verbose
+      - name: Upload Release Asset
+        working-directory: target/release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXEC_BIN: ${{ env.NAME }}
+          ZIP_FILE: ${{ env.NAME }}-NetBSD-amd64.zip
+        run: |
+          zip --junk-paths $ZIP_FILE $EXEC_BIN
+          gh release upload ${{ needs.release_job.outputs.release_version }} $ZIP_FILE
+
+  freebsd_job:
+    needs: release_job
+    runs-on: ubuntu-latest
+    name: Build for FreeBSD
+    env:
+      NAME: IQViewer
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile in FreeBSD on amd64
+        id: freebsd-vm
+        uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          prepare: |
+            pkg upgrade -y pkg
+            pkg install -y curl
+          run: |
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            . "$HOME/.cargo/env"
+            cargo --version
+            rustc --version
+            cargo build --release --verbose
+      - name: Upload Release Asset
+        working-directory: target/release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXEC_BIN: ${{ env.NAME }}
+          ZIP_FILE: ${{ env.NAME }}-FreeBSD-amd64.zip
+        run: |
+          zip --junk-paths $ZIP_FILE $EXEC_BIN
+          gh release upload ${{ needs.release_job.outputs.release_version }} $ZIP_FILE

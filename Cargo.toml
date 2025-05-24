@@ -1,0 +1,14 @@
+[package]
+name = "IQViewer"
+description = "SDR I/Q data file viewer app"
+repository = "https://github.com/triq-org/iqviewer/"
+license = "AGPL-3.0-or-later"
+authors = ["Christian W. Zuckschwerdt <zany@triq.net>"]
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+iced = { git = "https://github.com/iced-rs/iced.git", branch = "master", features = ["image-without-codecs"] }
+# iced_test = "0.0.0"
+memmap2 = "0.9.5"
+rfd = "0.15.3"

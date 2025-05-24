@@ -1,0 +1,3 @@
+[target.x86_64-unknown-netbsd]
+# -R option followed by a directory name is treated as -rpath option.
+rustflags = ["-C", "link-arg=-Wl,-R/usr/X11R7/lib,-R/usr/pkg/lib"]
