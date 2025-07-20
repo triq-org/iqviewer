@@ -97,6 +97,25 @@ unsafe extern "C" {
     /// Set the ask_height on the Spectrogram plot.
     fn splt_set_layout_ask_height(plot: *mut splt_t, ask_height: u32);
 
+    /// Get the exact zoom, so that `width` * `exact_zoom()`.
+    fn splt_get_exact_zoom(plot: *const splt_t) -> f32;
+    /// Gets the number of samples currently visible (`width * zoom`).
+    fn splt_get_visible_samples(plot: *const splt_t) -> u64;
+    /// Gets the sample number at a screen position.
+    fn splt_get_sample_at_pos(plot: *const splt_t, x: u32, y: u32) -> u64;
+    /// Gets the frequency at a screen position.
+    fn splt_get_freq_at_pos(plot: *const splt_t, x: u32, y: u32) -> f64;
+    /// Pan a given sample to some screen position.
+    fn splt_set_pan_to_pos(plot: *mut splt_t, sample: u64, x: u32, y: u32);
+    /// Pan the origin relative.
+    fn splt_set_pan_by(plot: *mut splt_t, dx: i32, dy: i32);
+    /// Set zoom and origin so the given point stays fixed.
+    fn splt_set_zoom_at(plot: *mut splt_t, x: u32, y: u32, zoom: u32);
+    /// Set zoom by two given samples and points.
+    /// Points will be swapped if the order does not fit the current direction.
+    /// If the points are invalid then zoom to full draw area.
+    fn splt_set_zoom_to(plot: *mut splt_t, sample1: u64, x1: u32, y1: u32, sample2: u64, x2: u32, y2: u32);
+
     /// Draw a `Spectrogram` into a pixel buffer.
     fn splt_draw(plot: *mut splt_t, pixels: *mut u32, width: u32, height: u32);
 
@@ -203,8 +222,8 @@ impl Plot {
         plot
     }
 
-    pub fn zoom(&self) -> usize {
-        unsafe { splt_get_zoom(self.plot) as usize }
+    pub fn zoom(&self) -> u32 {
+        unsafe { splt_get_zoom(self.plot) }
     }
     pub fn sample_format(&self) -> u8 {
         unsafe { splt_get_sample_format(self.plot) }
@@ -259,6 +278,10 @@ impl Plot {
         unsafe { splt_set_layout_ask_height(self.plot, ask_height) }
     }
 
+    pub fn set_zoom_at(&self, x: u32, y: u32, zoom: u32) {
+        unsafe { splt_set_zoom_at(self.plot, x, y, zoom) }
+    }
+
     pub fn infos(&self) -> Vec<String> {
         // 'File name', value: strip(file.name) })
         // 'File type', value: file.type || 'n/a' })
@@ -284,13 +307,12 @@ impl Plot {
         ]
     }
 
-    pub fn to_bitmap(&self, width: usize, height: usize, zoom: usize) -> (Vec<u8>, usize, usize) {
+    pub fn to_bitmap(&self, width: usize, height: usize) -> (Vec<u8>, usize, usize) {
         //println!("Requested size: {} x {}", width, height);
 
         // Setup Spectroplot
         unsafe {
             splt_set_layout_size(self.plot, width as u32, height as u32);
-            splt_set_zoom(self.plot, zoom as u32);
         }
 
         let width = unsafe { splt_get_layout_width(self.plot) } as usize;

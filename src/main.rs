@@ -3,11 +3,15 @@
 
 //! I/Q Viewer -- SDR I/Q data file viewer app.
 
+// Prevent a console window on Windows
+#![windows_subsystem = "windows"]
+
 use rfd::{FileDialog, MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
 use std::env;
 use std::path::{Path, PathBuf};
 use std::usize;
 
+use iced::mouse::ScrollDelta;
 use iced::widget::image::Handle;
 use iced::widget::scrollable::RelativeOffset;
 use iced::widget::{
@@ -15,17 +19,19 @@ use iced::widget::{
     row, scrollable, slider, text,
 };
 use iced::{
-    Alignment, Center, Element, Event, Length, Size, Subscription, Task, Theme, event, keyboard,
-    mouse, window,
+    Alignment, Center, Element, Event, Length, Point, Size, Subscription, Task, Theme, event,
+    keyboard, mouse, window,
 };
 
 mod dirs;
 mod items;
+mod mouse_area;
 mod options;
 mod plot_ffi;
 
 use dirs::*;
 use items::*;
+use mouse_area::*;
 use options::*;
 use plot_ffi::*;
 
@@ -57,7 +63,6 @@ struct Viewer {
     opts_range: Option<DbRange>,
     opts_colormap: Option<Colormap>,
     opts_orientation: Option<Orientation>,
-    zoom: usize,
     cwd: Option<PathBuf>,
     thumbnails: ItemList,
     plot: Option<Plot>,
@@ -89,7 +94,6 @@ impl Default for Viewer {
             opts_range: Some(DbRange::default()), // Gain range (cut-off to black)
             opts_colormap: Some(Colormap::default()), // Color map
             opts_orientation: Some(Orientation::default()), // Display orientation
-            zoom: 0,
             plot: None,
             cwd: None,
             thumbnails,
@@ -135,6 +139,9 @@ enum Message {
     PickRange(DbRange),
     PickColormap(Colormap),
     PickOrientation(Orientation),
+    PlotClicked(Point),
+    PlotDoubleClicked,
+    PlotScroll(Point, ScrollDelta),
 }
 
 impl Viewer {
@@ -166,48 +173,10 @@ impl Viewer {
                 Event::Window(window::Event::FileHovered(_path)) => Some(Message::FileHovered),
                 Event::Window(window::Event::FilesHoveredLeft) => Some(Message::FilesHoveredLeft),
                 Event::Window(window::Event::FileDropped(path)) => Some(Message::FileDropped(path)),
-
-                // Event::Window(window::Event::Resized(size)) => {
-                //     Some(Message::WindowResized(size))
-                // }
-                Event::Mouse(mouse::Event::WheelScrolled { delta: _ }) => {
-                    // println!("WheelScrolled {:?}", delta);
-                    None // FIXME: handle zoom
-                }
-                Event::Mouse(mouse::Event::CursorMoved { position: _ }) => {
-                    //self.cursor = position;
-                    // println!("CursorMoved {:?}", position);
-                    None
-                }
-                Event::Mouse(mouse::Event::ButtonPressed(_button)) => {
-                    // println!("ButtonPressed {:?}", button);
-                    None
-                }
                 _ => None,
             }),
         ])
     }
-    /*
-            Event::Mouse(mouse::Event::WheelScrolled { delta }) => {
-                if !self.is_ctrl_pressed {
-                    Command::none()
-                } else {
-                    let _id = window::Id::MAIN;
-                    window::fetch_size(_id, move |size| {
-                        let (_, _y) = match delta {
-                            ScrollDelta::Lines { x, y } => (x, y),
-                            ScrollDelta::Pixels { x, y } => (x, y),
-                        };
-
-                        let new_size = Size::new(
-                            size.width + _y * WINDOW_RESIZE_STEP,
-                            size.height + _y * WINDOW_RESIZE_STEP,
-                        );
-                        Message::Resize(new_size)
-                    })
-                }
-            }
-    */
 
     fn handle_hotkey(key: keyboard::Key, modifiers: keyboard::Modifiers) -> Option<Message> {
         use keyboard::Key::{Character, Named};
@@ -436,7 +405,6 @@ impl Viewer {
             Message::FileDropped(path) => {
                 // println!("FileDropped (of {}) {:?}", self.hover_count, path);
                 if path.is_file() {
-                    self.zoom = 0; // reset to default
                     if self.hover_count == 1 {
                         // single file: open editor
                         self.screen = Screen::Editor;
@@ -499,16 +467,18 @@ impl Viewer {
             }
             Message::IncrementZoom => {
                 if let Some(plot) = self.plot.as_mut() {
-                    self.zoom = (plot.zoom() / 2).max(1);
+                    plot.set_zoom((plot.zoom() / 2).max(1));
                 }
             }
             Message::DecrementZoom => {
                 if let Some(plot) = self.plot.as_mut() {
-                    self.zoom = plot.zoom() * 2;
+                    plot.set_zoom(plot.zoom() * 2);
                 }
             }
             Message::ResetZoom => {
-                self.zoom = 0;
+                if let Some(plot) = self.plot.as_mut() {
+                    plot.set_zoom(0);
+                }
             }
             Message::PickFftn(val) => {
                 self.opts_fftn = Some(val);
@@ -542,6 +512,33 @@ impl Viewer {
                     .as_ref()
                     .unwrap()
                     .set_layout_direction(val.to_value() as u8);
+            }
+            Message::PlotClicked(_position) => {
+                // println!("PlotClicked {position:?}");
+            }
+            Message::PlotDoubleClicked => {
+                if let Some(plot) = self.plot.as_mut() {
+                    plot.set_zoom(0);
+                }
+            }
+            Message::PlotScroll(position, delta) => {
+                let direction = match delta {
+                    ScrollDelta::Lines { x: _, y } => y.signum(),
+                    ScrollDelta::Pixels { x: _, y } => y.signum(),
+                };
+                if direction > 0.0 {
+                    if let Some(plot) = self.plot.as_mut() {
+                        plot.set_zoom_at(
+                            position.x as u32,
+                            position.y as u32,
+                            (plot.zoom() / 2).max(1),
+                        );
+                    }
+                } else if direction < 0.0 {
+                    if let Some(plot) = self.plot.as_mut() {
+                        plot.set_zoom_at(position.x as u32, position.y as u32, plot.zoom() * 2);
+                    }
+                }
             }
         }
         Task::none()
@@ -730,12 +727,7 @@ impl Viewer {
         let width = 500.max(self.size.width as usize);
         //let height = 500.max(self.size.height as usize) - 130;
         let height = 512;
-        let (pixels, width, height) =
-            self.plot
-                .as_ref()
-                .unwrap()
-                .to_bitmap(width, height, self.zoom as usize);
-        //self.zoom = self.plot.zoom();
+        let (pixels, width, height) = self.plot.as_ref().unwrap().to_bitmap(width, height);
         let handle = Handle::from_rgba(width as u32, height as u32, pixels);
 
         let toolbar = row![
@@ -778,14 +770,21 @@ impl Viewer {
         });
         let infobar = row(infobar).spacing(5).padding([5, 10]);
 
+        let plot = image(handle)
+            .content_fit(iced::ContentFit::None)
+            .filter_method(image::FilterMethod::Nearest)
+            .height(Length::Fixed(512.0));
+        let plot = MouseArea::new(plot)
+            .on_press(Message::PlotClicked)
+            .on_double_click(Message::PlotDoubleClicked)
+            .on_scroll(Message::PlotScroll)
+            .interaction(mouse::Interaction::Crosshair);
+
         column![
             toolbar,
             //actionbar,
             infobar,
-            image(handle)
-                .content_fit(iced::ContentFit::None)
-                .filter_method(image::FilterMethod::Nearest)
-                .height(Length::Fixed(512.0)),
+            plot,
         ]
     }
 }
