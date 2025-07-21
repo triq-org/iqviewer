@@ -65,6 +65,8 @@ struct Viewer {
     opts_orientation: Option<Orientation>,
     cwd: Option<PathBuf>,
     thumbnails: ItemList,
+    in_click: bool,
+    clicked_sample: u64,
     plot: Option<Plot>,
 }
 
@@ -94,9 +96,11 @@ impl Default for Viewer {
             opts_range: Some(DbRange::default()), // Gain range (cut-off to black)
             opts_colormap: Some(Colormap::default()), // Color map
             opts_orientation: Some(Orientation::default()), // Display orientation
-            plot: None,
             cwd: None,
             thumbnails,
+            in_click: false,
+            clicked_sample: 0,
+            plot: None,
         }
     }
 }
@@ -139,7 +143,11 @@ enum Message {
     PickRange(DbRange),
     PickColormap(Colormap),
     PickOrientation(Orientation),
-    PlotClicked(Point),
+    PlotLeftPress(Point),
+    PlotMove(Point),
+    PlotLeftRelease(Point),
+    PlotMiddlePress(Point),
+    PlotRightPress(Point),
     PlotDoubleClicked,
     PlotScroll(Point, ScrollDelta),
 }
@@ -467,12 +475,16 @@ impl Viewer {
             }
             Message::IncrementZoom => {
                 if let Some(plot) = self.plot.as_mut() {
-                    plot.set_zoom((plot.zoom() / 2).max(1));
+                    let x = plot.width() / 2; // NOTE: zoom at roughly center
+                    let y = plot.height() / 2;
+                    plot.set_zoom_at(x, y, (plot.zoom() / 2).max(1));
                 }
             }
             Message::DecrementZoom => {
                 if let Some(plot) = self.plot.as_mut() {
-                    plot.set_zoom(plot.zoom() * 2);
+                    let x = plot.width() / 2; // NOTE: zoom at roughly center
+                    let y = plot.height() / 2;
+                    plot.set_zoom_at(x, y, plot.zoom() * 2);
                 }
             }
             Message::ResetZoom => {
@@ -513,8 +525,36 @@ impl Viewer {
                     .unwrap()
                     .set_layout_direction(val.to_value() as u8);
             }
-            Message::PlotClicked(_position) => {
-                // println!("PlotClicked {position:?}");
+            Message::PlotLeftPress(position) => {
+                if let Some(plot) = self.plot.as_mut() {
+                    self.clicked_sample = plot.sample_at_pos(position.x as u32, position.y as u32);
+                    self.in_click = true;
+                }
+            }
+            Message::PlotMove(position) => {
+                if let Some(plot) = self.plot.as_mut() {
+                    plot.pan_to_pos(self.clicked_sample, position.x as u32, position.y as u32);
+                }
+            }
+            Message::PlotLeftRelease(position) => {
+                if let Some(plot) = self.plot.as_mut() {
+                    plot.pan_to_pos(self.clicked_sample, position.x as u32, position.y as u32);
+                }
+                self.in_click = false;
+            }
+            Message::PlotMiddlePress(position) => {
+                if let Some(plot) = self.plot.as_mut() {
+                    plot.set_zoom_at(
+                        position.x as u32,
+                        position.y as u32,
+                        (plot.zoom() / 2).max(1),
+                    );
+                }
+            }
+            Message::PlotRightPress(position) => {
+                if let Some(plot) = self.plot.as_mut() {
+                    plot.set_zoom_at(position.x as u32, position.y as u32, plot.zoom() * 2);
+                }
             }
             Message::PlotDoubleClicked => {
                 if let Some(plot) = self.plot.as_mut() {
@@ -522,11 +562,11 @@ impl Viewer {
                 }
             }
             Message::PlotScroll(position, delta) => {
-                let direction = match delta {
-                    ScrollDelta::Lines { x: _, y } => y.signum(),
-                    ScrollDelta::Pixels { x: _, y } => y.signum(),
+                let (dx, dy) = match delta {
+                    ScrollDelta::Lines { x, y } => (x, y),
+                    ScrollDelta::Pixels { x, y } => (x, y),
                 };
-                if direction > 0.0 {
+                if dy > 0.0 {
                     if let Some(plot) = self.plot.as_mut() {
                         plot.set_zoom_at(
                             position.x as u32,
@@ -534,9 +574,14 @@ impl Viewer {
                             (plot.zoom() / 2).max(1),
                         );
                     }
-                } else if direction < 0.0 {
+                } else if dy < 0.0 {
                     if let Some(plot) = self.plot.as_mut() {
                         plot.set_zoom_at(position.x as u32, position.y as u32, plot.zoom() * 2);
+                    }
+                } else {
+                    if let Some(plot) = self.plot.as_mut() {
+                        let zoom = plot.zoom() as i32;
+                        plot.set_pan_by(dx.signum() as i32 * 50 * zoom, 0);
                     }
                 }
             }
@@ -775,7 +820,11 @@ impl Viewer {
             .filter_method(image::FilterMethod::Nearest)
             .height(Length::Fixed(512.0));
         let plot = MouseArea::new(plot)
-            .on_press(Message::PlotClicked)
+            .on_press(Message::PlotLeftPress)
+            .on_move_maybe(self.in_click.then_some(Message::PlotMove))
+            .on_release(Message::PlotLeftRelease)
+            .on_middle_press(Message::PlotMiddlePress)
+            .on_right_press(Message::PlotRightPress)
             .on_double_click(Message::PlotDoubleClicked)
             .on_scroll(Message::PlotScroll)
             .interaction(mouse::Interaction::Crosshair);

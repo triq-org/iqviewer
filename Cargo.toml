@@ -4,7 +4,7 @@ description = "SDR I/Q data file viewer app"
 repository = "https://github.com/triq-org/iqviewer/"
 license = "AGPL-3.0-or-later"
 authors = ["Christian W. Zuckschwerdt <zany@triq.net>"]
-version = "0.1.0"
+version = "0.3.0"
 edition = "2024"
 
 [dependencies]

@@ -246,6 +246,12 @@ impl Plot {
     pub fn fft_size(&self) -> u32 {
         unsafe { splt_get_fft_size(self.plot) }
     }
+    pub fn width(&self) -> u32 {
+        unsafe { splt_get_layout_width(self.plot) }
+    }
+    pub fn height(&self) -> u32 {
+        unsafe { splt_get_layout_height(self.plot) }
+    }
 
     pub fn set_zoom(&self, zoom: u32) {
         unsafe { splt_set_zoom(self.plot, zoom) }
@@ -278,6 +284,18 @@ impl Plot {
         unsafe { splt_set_layout_ask_height(self.plot, ask_height) }
     }
 
+    pub fn sample_at_pos(&self, x: u32, y: u32) -> u64 {
+        unsafe { splt_get_sample_at_pos(self.plot, x, y) }
+    }
+    pub fn freq_at_pos(&self, x: u32, y: u32) -> f64 {
+        unsafe { splt_get_freq_at_pos(self.plot, x, y) }
+    }
+    pub fn pan_to_pos(&self, sample: u64, x: u32, y: u32) {
+        unsafe { splt_set_pan_to_pos(self.plot, sample, x, y) }
+    }
+    pub fn set_pan_by(&self, dx: i32, dy: i32) {
+        unsafe { splt_set_pan_by(self.plot, dx, dy) }
+    }
     pub fn set_zoom_at(&self, x: u32, y: u32, zoom: u32) {
         unsafe { splt_set_zoom_at(self.plot, x, y, zoom) }
     }

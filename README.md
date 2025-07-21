@@ -4,11 +4,11 @@ A somewhat minimal hack of an I/Q data file browser and viewer app.
 
 | OS | Arch |
 |---|---|
-| Linux   | [x86_64](https://github.com/triq-org/iqviewer/releases/download/0.2/IQViewer-Linux-amd64.zip) &nbsp; [ARM64](https://github.com/triq-org/iqviewer/releases/download/0.2/IQViewer-Linux-arm64.zip) &nbsp; [ARMv7](https://github.com/triq-org/iqviewer/releases/download/0.2/IQViewer-Linux-armv7.zip)|
-| NetBSD  | [x86_64](https://github.com/triq-org/iqviewer/releases/download/0.2/IQViewer-NetBSD-amd64.zip) |
-| FreeBSD | [x86_64](https://github.com/triq-org/iqviewer/releases/download/0.2/IQViewer-FreeBSD-amd64.zip) |
-| Windows | [x64](https://github.com/triq-org/iqviewer/releases/download/0.2/IQViewer-Windows-x64.zip) |
-| macOS   | [intel + arm](https://github.com/triq-org/iqviewer/releases/download/0.2/IQViewer.dmg) |
+| Linux   | [x86_64](https://github.com/triq-org/iqviewer/releases/download/0.3/IQViewer-Linux-amd64.zip) &nbsp; [ARM64](https://github.com/triq-org/iqviewer/releases/download/0.3/IQViewer-Linux-arm64.zip) &nbsp; [ARMv7](https://github.com/triq-org/iqviewer/releases/download/0.3/IQViewer-Linux-armv7.zip)|
+| NetBSD  | [x86_64](https://github.com/triq-org/iqviewer/releases/download/0.3/IQViewer-NetBSD-amd64.zip) |
+| FreeBSD | [x86_64](https://github.com/triq-org/iqviewer/releases/download/0.3/IQViewer-FreeBSD-amd64.zip) |
+| Windows | [x64](https://github.com/triq-org/iqviewer/releases/download/0.3/IQViewer-Windows-x64.zip) |
+| macOS   | [intel + arm](https://github.com/triq-org/iqviewer/releases/download/0.3/IQViewer.dmg) |
 
 ![Screenshot](web/IQViewer.png)
 
