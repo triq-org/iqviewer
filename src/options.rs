@@ -6,6 +6,7 @@
 /// FFT window size.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FftSize {
+    Size1024,
     #[default]
     Size512,
     Size256,
@@ -17,6 +18,7 @@ pub enum FftSize {
 
 impl FftSize {
     pub const VARIANTS: &[Self] = &[
+        Self::Size1024,
         Self::Size512,
         Self::Size256,
         Self::Size128,
@@ -26,13 +28,14 @@ impl FftSize {
     ];
 
     pub fn to_value(&self) -> usize {
-        1 << (9 - *self as usize)
+        1 << (10 - *self as usize)
     }
 }
 
 impl std::fmt::Display for FftSize {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
+            Self::Size1024 => "N=1024",
             Self::Size512 => "N=512",
             Self::Size256 => "N=256",
             Self::Size128 => "N=128",

@@ -84,6 +84,10 @@ impl ItemList {
             .fold(0, |acc, t| if t.has_delete { acc + 1 } else { acc })
     }
 
+    pub fn has_selection(&self) -> bool {
+        self.selection < self.len()
+    }
+
     pub fn selection(&self) -> usize {
         self.selection
     }
@@ -98,6 +102,21 @@ impl ItemList {
 
     pub fn dec_selection(&mut self, offset: usize) {
         self.selection = self.selection.saturating_sub(offset);
+    }
+
+    pub fn selected_remove(&mut self) {
+        if self.has_selection() {
+            self.items.remove(self.selection);
+            self.set_selection(self.selection);
+        }
+    }
+
+    pub fn selected_toggle_mark(&mut self) {
+        self.selected_mut().map(FileItem::toggle_mark);
+    }
+
+    pub fn selected_toggle_delete(&mut self) {
+        self.selected_mut().map(FileItem::toggle_delete);
     }
 
     pub fn selected(&self) -> Option<&FileItem> {
@@ -158,6 +177,11 @@ impl ItemList {
 
 pub struct FileItem {
     path: PathBuf,
+    size: Option<u64>,
+    sample_format: &'static str,
+    sample_count: u64,
+    center_freq: f64,
+    sample_rate: f64,
     handle: Handle,
     has_mark: bool,
     has_delete: bool,
@@ -171,11 +195,22 @@ impl AsRef<Path> for FileItem {
 
 impl FileItem {
     pub fn new(path: PathBuf) -> Self {
-        let (pixels, width, height) = Plot::thumbnail(&path);
-        let handle = Handle::from_rgba(width as u32, height as u32, pixels);
+        let size = if let Ok(metadata) = fs::metadata(&path) {
+            Some(metadata.len())
+        } else {
+            None
+        };
+
+        let (bitmap, file_info) = Plot::thumbnail(&path);
+        let handle = Handle::from_rgba(bitmap.width as u32, bitmap.height as u32, bitmap.pixels);
 
         Self {
             path,
+            size,
+            sample_format: file_info.sample_format,
+            sample_count: file_info.sample_count,
+            center_freq: file_info.center_freq,
+            sample_rate: file_info.sample_rate,
             handle,
             has_mark: false,
             has_delete: false,
@@ -184,6 +219,26 @@ impl FileItem {
 
     pub fn path(&self) -> &Path {
         self.path.as_path()
+    }
+
+    pub fn size(&self) -> Option<u64> {
+        self.size
+    }
+
+    pub fn sample_format(&self) -> &'static str {
+        self.sample_format
+    }
+
+    pub fn sample_count(&self) -> u64 {
+        self.sample_count
+    }
+
+    pub fn center_freq(&self) -> f64 {
+        self.center_freq
+    }
+
+    pub fn sample_rate(&self) -> f64 {
+        self.sample_rate
     }
 
     pub fn handle(&self) -> &Handle {

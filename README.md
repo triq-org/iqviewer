@@ -4,11 +4,11 @@ A somewhat minimal hack of an I/Q data file browser and viewer app.
 
 | OS | Arch |
 |---|---|
-| Linux   | [x86_64](https://github.com/triq-org/iqviewer/releases/download/0.3/IQViewer-Linux-amd64.zip) &nbsp; [ARM64](https://github.com/triq-org/iqviewer/releases/download/0.3/IQViewer-Linux-arm64.zip) &nbsp; [ARMv7](https://github.com/triq-org/iqviewer/releases/download/0.3/IQViewer-Linux-armv7.zip)|
-| NetBSD  | [x86_64](https://github.com/triq-org/iqviewer/releases/download/0.3/IQViewer-NetBSD-amd64.zip) |
-| FreeBSD | [x86_64](https://github.com/triq-org/iqviewer/releases/download/0.3/IQViewer-FreeBSD-amd64.zip) |
-| Windows | [x64](https://github.com/triq-org/iqviewer/releases/download/0.3/IQViewer-Windows-x64.zip) |
-| macOS   | [intel + arm](https://github.com/triq-org/iqviewer/releases/download/0.3/IQViewer.dmg) |
+| Linux   | [x86_64](https://github.com/triq-org/iqviewer/releases/download/0.4/IQViewer-Linux-amd64.zip) &nbsp; [ARM64](https://github.com/triq-org/iqviewer/releases/download/0.4/IQViewer-Linux-arm64.zip) &nbsp; [ARMv7](https://github.com/triq-org/iqviewer/releases/download/0.4/IQViewer-Linux-armv7.zip)|
+| NetBSD  | [x86_64](https://github.com/triq-org/iqviewer/releases/download/0.4/IQViewer-NetBSD-amd64.zip) |
+| FreeBSD | [x86_64](https://github.com/triq-org/iqviewer/releases/download/0.4/IQViewer-FreeBSD-amd64.zip) |
+| Windows | [x64](https://github.com/triq-org/iqviewer/releases/download/0.4/IQViewer-Windows-x64.zip) |
+| macOS   | [intel + arm](https://github.com/triq-org/iqviewer/releases/download/0.4/IQViewer.dmg) |
 
 ![Screenshot](web/IQViewer.png)
 
@@ -33,27 +33,40 @@ For ideas on more features, feedback and discussion see this [Issue](https://git
 - `.cf64`,
 - `.sigmf`,
 
-## Hotkeys
+## Controls and Hotkeys
 
 ### Browser
 - <kbd>o</kbd> → open files
 - <kbd>O</kbd> → open dirs
 - <kbd>x</kbd> → clear list
+- <kbd>DEL</kbd> → remove item
 - <kbd>d</kbd> → mark file for delete
 - <kbd>f</kbd> → mark file for move
 - <kbd>D</kbd> → delete marked
 - <kbd>M</kbd> → move marked
-- <kbd>space</kbd> → open viewer
+- <kbd>SPACE</kbd> → toggle viewer
+- <kbd>z</kbd> → toggle viewer size
 - <kbd>q</kbd> → quit app
 - <kbd>s</kbd> <kbd>m</kbd> <kbd>l</kbd> → thumbnail size
-- <kbd>h</kbd> → show help
+- <kbd>h</kbd> → toggle help
+- <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> → move selection
+- <kbd>⤒</kbd> <kbd>⤓</kbd> → move first / last
 
 ## Viewer
-- <kbd>esc</kbd> → close viewer
-- <kbd>space</kbd> → close viewer
+- <kbd>ESC</kbd> → close viewer
+- <kbd>SPACE</kbd> → toggle viewer
 - <kbd>+</kbd> → zoom in
 - <kbd>-</kbd> → zoom out
 - <kbd>0</kbd> → reset zoom
+
+## Viewer mouse controls
+- <em>Scroll Wheel</em> → zoom
+- <em>Horizontal Scroll</em> → pan
+- <em>Click+Drag</em> → pan
+- <em>Middle Click</em> → zoom in
+- <em>Right Click</em> → zoom out
+- <em>Hold Shift</em> → measure
+- <em>Shift+Click</em> → set a marker
 
 ## License
 

@@ -116,6 +116,9 @@ unsafe extern "C" {
     /// If the points are invalid then zoom to full draw area.
     fn splt_set_zoom_to(plot: *mut splt_t, sample1: u64, x1: u32, y1: u32, sample2: u64, x2: u32, y2: u32);
 
+    /// Draw `Spectrogram` guides into a pixel buffer.
+    fn splt_draw_guides(plot: *mut splt_t, pixels: *mut u32, width: u32, height: u32, marker_sample: u64, marker_freq: f64, x: u32, y: u32);
+
     /// Draw a `Spectrogram` into a pixel buffer.
     fn splt_draw(plot: *mut splt_t, pixels: *mut u32, width: u32, height: u32);
 
@@ -142,6 +145,19 @@ const SAMPLE_FORMAT: &[&str] = &[
     "CF32",
     "CF64",
 ];
+
+pub struct FileInfo {
+    pub sample_format: &'static str,
+    pub sample_count: u64,
+    pub center_freq: f64,
+    pub sample_rate: f64,
+}
+
+#[derive(Default, Clone, Copy)]
+pub struct PlotMarker {
+    pub sample: u64,
+    pub freq: f64,
+}
 
 pub struct Plot {
     path: PathBuf,
@@ -179,7 +195,7 @@ impl Plot {
         self.path.as_path()
     }
 
-    pub fn thumbnail(path: impl AsRef<Path>) -> (Vec<u8>, usize, usize) {
+    pub fn thumbnail(path: impl AsRef<Path>) -> (RawBitmap, FileInfo) {
         let path = path.as_ref();
         let plot = Self::create_plot(path);
 
@@ -203,8 +219,14 @@ impl Plot {
         }
 
         //println!("Rendered size: {} x {}", width, height);
+        let file_info = FileInfo {
+            sample_format: SAMPLE_FORMAT[unsafe { splt_get_sample_format(plot) } as usize],
+            sample_count: unsafe { splt_get_sample_count(plot) },
+            center_freq: unsafe { splt_get_center_freq(plot) },
+            sample_rate: unsafe { splt_get_sample_rate(plot) },
+        };
 
-        Self::pixels_toraw(pixels, width, height)
+        (RawBitmap::from_rgba(pixels, width, height), file_info)
     }
 
     fn create_plot(path: impl AsRef<Path>) -> *mut splt_t {
@@ -300,6 +322,20 @@ impl Plot {
         unsafe { splt_set_zoom_at(self.plot, x, y, zoom) }
     }
 
+    pub fn is_nearby(&self, sample: u64, freq: f64, x: u32, y: u32) -> bool {
+        let margin = 10; // in px
+        // get cursor x/y sample/freq
+        let c_sample = self.sample_at_pos(x as u32, y as u32);
+        let c_freq = self.freq_at_pos(x as u32, y as u32);
+        // get delta x/y sample/freq
+        let d_sample = self.sample_at_pos(x as u32 + margin, y as u32 + margin);
+        let d_freq = self.freq_at_pos(x as u32 + margin, y as u32 + margin);
+        let d_sample = c_sample.abs_diff(d_sample);
+        let d_freq = (c_freq - d_freq).abs();
+
+        sample.abs_diff(c_sample) <= d_sample || (freq - c_freq).abs() <= d_freq
+    }
+
     pub fn infos(&self) -> Vec<String> {
         // 'File name', value: strip(file.name) })
         // 'File type', value: file.type || 'n/a' })
@@ -325,9 +361,24 @@ impl Plot {
         ]
     }
 
-    pub fn to_bitmap(&self, width: usize, height: usize) -> (Vec<u8>, usize, usize) {
-        //println!("Requested size: {} x {}", width, height);
+    pub fn to_guides_bitmap(&self, marker: PlotMarker, x: usize, y: usize) -> RawBitmap {
+        let width = unsafe { splt_get_layout_width(self.plot) } as usize;
+        let height = unsafe { splt_get_layout_height(self.plot) } as usize;
 
+        let mut pixels = vec![0; width * height];
+
+        // Run Spectroplot
+        // abort if x/y is default
+        if x != 0 || y != 0 {
+            unsafe {
+                splt_draw_guides(self.plot, pixels.as_mut_ptr(), width as u32, height as u32, marker.sample, marker.freq, x as u32, y as u32);
+            }
+        }
+
+        RawBitmap::from_rgba(pixels, width, height)
+    }
+
+    pub fn to_bitmap(&self, width: usize, height: usize) -> RawBitmap {
         // Setup Spectroplot
         unsafe {
             splt_set_layout_size(self.plot, width as u32, height as u32);
@@ -343,27 +394,32 @@ impl Plot {
             splt_draw(self.plot, pixels.as_mut_ptr(), width as u32, height as u32);
         }
 
-        //println!("Rendered size: {} x {}", width, height);
-
-        Self::pixels_toraw(pixels, width, height)
+        RawBitmap::from_rgba(pixels, width, height)
     }
+}
 
-    fn pixels_toraw(pixels: Vec<u32>, width: usize, height: usize) -> (Vec<u8>, usize, usize) {
+pub struct RawBitmap {
+    pub pixels: Vec<u8>,
+    pub width: usize,
+    pub height: usize,
+}
+
+impl RawBitmap {
+    pub fn from_rgba(pixels: Vec<u32>, width: usize, height: usize) -> Self {
         let mut pixels = pixels;
-        (
-            unsafe {
-                let length = pixels.len() * 4;
-                let capacity = pixels.capacity() * 4;
-                let ptr = pixels.as_mut_ptr() as *mut u8;
-
-                // Don't run the destructor for pixels
-                std::mem::forget(pixels);
-
-                // Construct new Vec
-                Vec::from_raw_parts(ptr, length, capacity)
-            },
+        let pixels = unsafe {
+            let length = pixels.len() * 4;
+            let capacity = pixels.capacity() * 4;
+            let ptr = pixels.as_mut_ptr() as *mut u8;
+            // Don't run the destructor for pixels
+            std::mem::forget(pixels);
+            // Construct new Vec
+            Vec::from_raw_parts(ptr, length, capacity)
+        };
+        Self {
+            pixels,
             width,
             height,
-        )
+        }
     }
 }

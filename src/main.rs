@@ -12,28 +12,30 @@ use std::path::{Path, PathBuf};
 use std::usize;
 
 use iced::mouse::ScrollDelta;
-use iced::widget::image::Handle;
 use iced::widget::scrollable::RelativeOffset;
 use iced::widget::{
     Column, Container, Stack, button, column, container, grid, horizontal_space, image, pick_list,
     row, scrollable, slider, text,
 };
 use iced::{
-    Alignment, Center, Element, Event, Length, Point, Size, Subscription, Task, Theme, event,
-    keyboard, mouse, window,
+    Alignment, Center, Element, Event, Length, Point, Subscription, Task, Theme, event, keyboard,
+    mouse, window,
 };
 
 mod dirs;
+mod icons;
 mod items;
 mod mouse_area;
 mod options;
 mod plot_ffi;
+mod plotarea;
 
 use dirs::*;
 use items::*;
 use mouse_area::*;
 use options::*;
 use plot_ffi::*;
+use plotarea::*;
 
 pub fn main() -> iced::Result {
     iced::application(Viewer::default, Viewer::update, Viewer::view)
@@ -42,19 +44,20 @@ pub fn main() -> iced::Result {
         .theme(Viewer::theme)
         .settings(Viewer::settings())
         .window(Viewer::window_settings())
+        .font(icons::FONT)
         .run()
 }
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 const GRID_SPACING: f32 = 10.0;
 const GRID_TEXT_HEIGHT: f32 = 40.0;
 
 //#[derive(Default)]
 struct Viewer {
     screen: Screen,
+    zoom_editor: bool,
     show_help: bool,
     cells_per_row: usize,
-    // cursor: Point,
-    size: Size,
     thumbnail_size: u32,
     hover_count: usize,
     opts_fftn: Option<FftSize>,
@@ -68,6 +71,9 @@ struct Viewer {
     in_click: bool,
     clicked_sample: u64,
     plot: Option<Plot>,
+    is_shift_pressed: bool,
+    cursor: Point,
+    marker: PlotMarker,
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,10 +90,9 @@ impl Default for Viewer {
 
         Self {
             screen: Screen::default(),
+            zoom_editor: false,
             show_help: false,
             cells_per_row: 1,
-            // cursor: Point::default(),
-            size: Size::default(),
             thumbnail_size: 256,
             hover_count: 0,
             opts_fftn: Some(FftSize::default()), // FFT window width
@@ -101,6 +106,9 @@ impl Default for Viewer {
             in_click: false,
             clicked_sample: 0,
             plot: None,
+            is_shift_pressed: false,
+            cursor: Point::default(),
+            marker: PlotMarker::default(),
         }
     }
 }
@@ -111,8 +119,10 @@ enum Message {
     Quit,
     CloseEditor,
     ToggleGallery,
+    ToggleSplit,
     ThumbnailSize(f32),
     GalleryScrolled(scrollable::Viewport),
+    RemoveSelected,
     ClearGallery,
     OpenThumbnail(usize),
     OpenDirDialog,
@@ -121,7 +131,6 @@ enum Message {
     FileHovered,
     FilesHoveredLeft,
     FileDropped(PathBuf),
-    WindowResized(Size),
     ToggleMark,
     ToggleDelete,
     ConfirmMove,
@@ -150,6 +159,8 @@ enum Message {
     PlotRightPress(Point),
     PlotDoubleClicked,
     PlotScroll(Point, ScrollDelta),
+    ShiftPressed,
+    ShiftReleased,
 }
 
 impl Viewer {
@@ -167,16 +178,26 @@ impl Viewer {
     }
 
     fn window_settings() -> window::Settings {
+        let rgba = include_bytes!("../assets/icon.rgba");
+        let icon = window::icon::from_rgba(rgba.to_vec(), 512, 512).expect("Bad Icon data");
+        let platform_specific = window::settings::PlatformSpecific::default();
+        #[cfg(target_os = "linux")]
+        let platform_specific = window::settings::PlatformSpecific {
+            application_id: "IQViewer".to_owned(),
+            ..Default::default()
+        };
         window::Settings {
+            icon: Some(icon),
             min_size: Some((400.0, 400.0).into()),
+            platform_specific,
             ..Default::default()
         }
     }
 
     fn subscription(&self) -> Subscription<Message> {
         Subscription::batch([
-            window::resize_events().map(|(_id, size)| Message::WindowResized(size)),
-            keyboard::on_key_press(Self::handle_hotkey),
+            keyboard::on_key_press(Self::on_key_press),
+            keyboard::on_key_release(Self::on_key_release),
             event::listen_with(|event, _status, _windows| match event {
                 Event::Window(window::Event::FileHovered(_path)) => Some(Message::FileHovered),
                 Event::Window(window::Event::FilesHoveredLeft) => Some(Message::FilesHoveredLeft),
@@ -186,7 +207,7 @@ impl Viewer {
         ])
     }
 
-    fn handle_hotkey(key: keyboard::Key, modifiers: keyboard::Modifiers) -> Option<Message> {
+    fn on_key_press(key: keyboard::Key, modifiers: keyboard::Modifiers) -> Option<Message> {
         use keyboard::Key::{Character, Named};
         use keyboard::key::Named as Key;
 
@@ -194,6 +215,7 @@ impl Viewer {
         const SHIFT: keyboard::Modifiers = keyboard::Modifiers::SHIFT;
 
         match (key.as_ref(), modifiers) {
+            (Named(Key::Shift), _) => Some(Message::ShiftPressed),
             (Named(Key::ArrowLeft), NONE) => Some(Message::SelectPrev),
             (Named(Key::ArrowRight), NONE) => Some(Message::SelectNext),
             (Named(Key::ArrowUp), NONE) => Some(Message::SelectUp),
@@ -204,6 +226,7 @@ impl Viewer {
             (Named(Key::End), NONE) => Some(Message::SelectEnd),
             (Named(Key::Escape), NONE) => Some(Message::CloseEditor),
             (Named(Key::Space), NONE) => Some(Message::ToggleGallery),
+            (Named(Key::Delete), NONE) => Some(Message::RemoveSelected),
             (Character("d"), SHIFT) => Some(Message::ConfirmDelete),
             (Character("m"), SHIFT) => Some(Message::ConfirmMove),
             (Character("o"), SHIFT) => Some(Message::OpenDirDialog),
@@ -218,7 +241,18 @@ impl Viewer {
             (Character("+"), NONE) => Some(Message::IncrementZoom),
             (Character("-"), NONE) => Some(Message::DecrementZoom),
             (Character("0"), NONE) => Some(Message::ResetZoom),
+            (Character("z"), NONE) => Some(Message::ToggleSplit),
             (Character("h"), NONE) => Some(Message::ShowHelp),
+            _ => None,
+        }
+    }
+
+    fn on_key_release(key: keyboard::Key, modifiers: keyboard::Modifiers) -> Option<Message> {
+        use keyboard::Key::Named;
+        use keyboard::key::Named as Key;
+
+        match (key.as_ref(), modifiers) {
+            (Named(Key::Shift), _) => Some(Message::ShiftReleased),
             _ => None,
         }
     }
@@ -292,7 +326,7 @@ impl Viewer {
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::Quit => return iced::exit(),
+            Message::Quit => return window::get_latest().and_then(window::close),
             Message::ShowHelp => {
                 self.show_help = !self.show_help;
             }
@@ -323,6 +357,9 @@ impl Viewer {
                     self.screen = Screen::Editor
                 }
             }
+            Message::ToggleSplit => {
+                self.zoom_editor = !self.zoom_editor;
+            }
             Message::GalleryScrolled(viewport) => {
                 // TODO: save/restore offset
                 // println!("relative_offset {:?}", viewport.relative_offset().y);
@@ -349,11 +386,14 @@ impl Viewer {
                 self.screen = Screen::Gallery;
                 self.thumbnails.clear();
             }
+            Message::RemoveSelected => {
+                self.thumbnails.selected_remove();
+            }
             Message::ToggleMark => {
-                self.thumbnails.selected_mut().map(FileItem::toggle_mark);
+                self.thumbnails.selected_toggle_mark();
             }
             Message::ToggleDelete => {
-                self.thumbnails.selected_mut().map(FileItem::toggle_delete);
+                self.thumbnails.selected_toggle_delete();
             }
             Message::ConfirmMove => {
                 if self.thumbnails.count_marked() > 0 {
@@ -434,10 +474,6 @@ impl Viewer {
                     let files = read_dir_iq(path).unwrap();
                     self.thumbnails.extend(files);
                 }
-            }
-            Message::WindowResized(size) => {
-                self.size = size;
-                // println!("WindowResized {:?}", size);
             }
             Message::SelectPrev => {
                 self.thumbnails.dec_selection(1);
@@ -527,20 +563,47 @@ impl Viewer {
             }
             Message::PlotLeftPress(position) => {
                 if let Some(plot) = self.plot.as_mut() {
-                    self.clicked_sample = plot.sample_at_pos(position.x as u32, position.y as u32);
-                    self.in_click = true;
+                    if self.is_shift_pressed {
+                        if self.marker.sample != 0
+                            && plot.is_nearby(
+                                self.marker.sample,
+                                self.marker.freq,
+                                position.x as u32,
+                                position.y as u32,
+                            )
+                        {
+                            // remove marker
+                            self.marker = PlotMarker::default();
+                        } else {
+                            // toggle marker
+                            self.marker.sample =
+                                plot.sample_at_pos(position.x as u32, position.y as u32);
+                            self.marker.freq =
+                                plot.freq_at_pos(position.x as u32, position.y as u32);
+                        }
+                    } else {
+                        // pan view
+                        self.clicked_sample =
+                            plot.sample_at_pos(position.x as u32, position.y as u32);
+                        self.in_click = true;
+                    }
                 }
             }
             Message::PlotMove(position) => {
-                if let Some(plot) = self.plot.as_mut() {
-                    plot.pan_to_pos(self.clicked_sample, position.x as u32, position.y as u32);
+                self.cursor = position;
+                if self.in_click {
+                    if let Some(plot) = self.plot.as_mut() {
+                        plot.pan_to_pos(self.clicked_sample, position.x as u32, position.y as u32);
+                    }
                 }
             }
             Message::PlotLeftRelease(position) => {
-                if let Some(plot) = self.plot.as_mut() {
-                    plot.pan_to_pos(self.clicked_sample, position.x as u32, position.y as u32);
+                if self.in_click {
+                    if let Some(plot) = self.plot.as_mut() {
+                        plot.pan_to_pos(self.clicked_sample, position.x as u32, position.y as u32);
+                    }
+                    self.in_click = false;
                 }
-                self.in_click = false;
             }
             Message::PlotMiddlePress(position) => {
                 if let Some(plot) = self.plot.as_mut() {
@@ -585,20 +648,25 @@ impl Viewer {
                     }
                 }
             }
+            Message::ShiftPressed => self.is_shift_pressed = true,
+            Message::ShiftReleased => self.is_shift_pressed = false,
         }
         Task::none()
     }
 
     fn view(&self) -> Element<'_, Message> {
-        let content: Element<'_, Message> = match self.screen {
-            Screen::Gallery => self.view_gallery().into(),
-            Screen::Editor => column![
+        let content: Element<'_, Message> = match (self.screen, self.zoom_editor) {
+            (Screen::Gallery, _) => self.view_gallery().height(Length::FillPortion(1)).into(),
+            (Screen::Editor, true) => self.view_editor().into(),
+            (Screen::Editor, false) => column![
                 self.view_gallery().height(Length::FillPortion(1)),
-                self.view_editor(),
+                self.view_editor().height(Length::FillPortion(2)),
             ]
             .align_x(Center)
             .into(),
         };
+
+        let content = column![content, self.view_statusbar(),].into();
 
         if self.show_help {
             Stack::with_children([content, self.view_help().into()]).into()
@@ -607,32 +675,99 @@ impl Viewer {
         }
     }
 
+    fn view_statusbar(&self) -> Container<Message> {
+        let marked = self.thumbnails.count_marked();
+        let to_delete = self.thumbnails.count_to_delete();
+        let item_count = self.thumbnails.len();
+        let status_text = row![
+            row![icons::grid(), text(format!(" {item_count}"))],
+            row![icons::bookmark(), text(format!(" {marked}"))],
+            row![icons::trash(), text(format!(" {to_delete}"))],
+        ]
+        .spacing(16);
+
+        let selection_text = if let Some(thumbnail) = self.thumbnails.selected() {
+            let filename = thumbnail.filename();
+            let size = thumbnail.size().unwrap_or_default() / 1024;
+            let sample_format = thumbnail.sample_format();
+            let sample_count = thumbnail.sample_count();
+            let center_freq = thumbnail.center_freq() / 1_000_000.0;
+            let sample_rate = thumbnail.sample_rate() / 1_000.0;
+            let duration = thumbnail.sample_count() as f64 / thumbnail.sample_rate();
+            row![
+                row![icons::file(), text(format!(" {filename}"))],
+                row![icons::drive(), text(format!(" {size} kB  {sample_format}"))],
+                row![icons::resize_horizontal(), text(format!(" {sample_count} S"))],
+                row![icons::clock(), text(format!(" {duration:.2} s"))],
+                row![icons::signal(), text(format!(" {center_freq} MHz"))],
+                row![icons::gauge(), text(format!(" {sample_rate} kHz"))],
+            ]
+            .spacing(16)
+        } else {
+            row![]
+        };
+
+        container(row![selection_text, status_text,].spacing(20))
+            .padding([0, 10]) // top/bottom, left/right
+            .width(Length::Fill)
+            .style(container::rounded_box)
+    }
+
     fn view_help(&self) -> Container<Message> {
         container(
-            container(column![
-                text("Drop files or dirs to load"),
-                text("or use menu to open"),
-                text(""),
-                text("Hotkeys:"),
-                dt_text("o", "open files"),
-                dt_text("O", "open dirs"),
-                dt_text("x", "clear list"),
-                dt_text("d", "mark file for delete"),
-                dt_text("f", "mark file for move"),
-                dt_text("D", "delete marked"),
-                dt_text("M", "move marked"),
-                dt_text("space", "open viewer"),
-                dt_text("q", "quit app"),
-                dt_text("s m l", "thumbnail size"),
-                dt_text("h", "show this help"),
-                text(""),
-                text("Viewer Hotkeys:"),
-                dt_text("esc", "close viewer"),
-                dt_text("space", "close viewer"),
-                dt_text("+", "zoom in"),
-                dt_text("-", "zoom out"),
-                dt_text("0", "reset zoom"),
-            ])
+            container(
+                column![
+                    text(format!("IQViewer {VERSION}"))
+                        .size(20)
+                        .style(text::primary),
+                    text(""),
+                    text("Drop files or dirs to load"),
+                    text("or use menu to open files / folders"),
+                    row![
+                        column![
+                            text("Hotkeys:"),
+                            dt_text("o", "open files"),
+                            dt_text("O", "open dirs"),
+                            dt_text("x", "clear list"),
+                            dt_text("DEL", "remove item"),
+                            dt_text("d", "mark file for delete"),
+                            dt_text("f", "mark file for move"),
+                            dt_text("D", "delete marked"),
+                            dt_text("M", "move marked"),
+                            dt_text("SPACE", "toggle viewer"),
+                            dt_text("z", "toggle viewer size"),
+                            dt_text("q", "quit app"),
+                            dt_text("s m l", "thumbnail size"),
+                            dt_text("h", "toggle this help"),
+                            dt_text("↑↓←→", "move selection"),
+                            dt_text("⤒⤓", "move first / last"),
+                        ]
+                        .padding(20),
+                        column![
+                            text(""),
+                            text("Viewer hotkeys:"),
+                            dt_text("ESC", "close viewer"),
+                            dt_text("SPACE", "toggle viewer"),
+                            dt_text("+", "zoom in"),
+                            dt_text("-", "zoom out"),
+                            dt_text("0", "reset zoom"),
+                            text(""),
+                            text("Viewer mouse controls:"),
+                            dt2_text("Scroll Wheel", "zoom"),
+                            dt2_text("Horizontal Scroll", "pan"),
+                            dt2_text("Click+Drag", "pan"),
+                            dt2_text("Middle Click", "zoom in"),
+                            dt2_text("Right Click", "zoom out"),
+                            dt2_text("Hold Shift", "measure"),
+                            dt2_text("Shift+Click", "set a marker"),
+                        ]
+                        .padding(20)
+                    ],
+                    row![icons::home(), "https://triq.net/"].spacing(6),
+                    row![icons::github(), "https://github.com/triq-org/iqviewer/"].spacing(6),
+                ]
+                .align_x(Alignment::Center),
+            )
             .padding(50)
             .style(container::rounded_box),
         )
@@ -708,11 +843,20 @@ impl Viewer {
         .padding(10)
     }
 
-    fn view_gallery(&self) -> Column<Message> {
+    fn view_menubar(&self) -> Container<Message> {
         let menubar = row![
-            button("Open folder").on_press(Message::OpenDirDialog),
-            button("Open files").on_press(Message::OpenFileDialog),
-            button("Clear list").on_press(Message::ClearGallery),
+            button(row![icons::folder(), " Open folder"])
+                .style(button::text)
+                .on_press(Message::OpenDirDialog),
+            button(row![icons::file(), " Open files"])
+                .style(button::text)
+                .on_press(Message::OpenFileDialog),
+            button(row![icons::clear(), " Clear list"])
+                .style(button::text)
+                .on_press(Message::ClearGallery),
+            button(row![icons::help(), " Help"])
+                .style(button::text)
+                .on_press(Message::ShowHelp),
             horizontal_space(),
             container(slider(
                 64.0..=256.0,
@@ -721,21 +865,22 @@ impl Viewer {
             ),)
             .padding([7, 5]), // top/bottom, left/right
         ]
-        .spacing(5);
+        .spacing(1);
 
-        let menubar = container(menubar)
+        container(menubar)
             .padding([0, 10]) // top/bottom, left/right
             .width(Length::Fill)
-            .style(container::rounded_box);
+            .style(container::rounded_box)
+    }
 
+    fn view_gallery(&self) -> Column<Message> {
         let content = if self.thumbnails.is_empty() {
             self.view_help()
         } else {
             self.view_thumbnails()
         };
 
-        column![menubar, content,].align_x(Center)
-        //.into()
+        column![self.view_menubar(), content,].align_x(Center)
     }
 
     fn view_editor(&self) -> Column<Message> {
@@ -768,12 +913,6 @@ impl Viewer {
             Message::PickOrientation,
         )
         .placeholder("Orientation");
-
-        let width = 500.max(self.size.width as usize);
-        //let height = 500.max(self.size.height as usize) - 130;
-        let height = 512;
-        let (pixels, width, height) = self.plot.as_ref().unwrap().to_bitmap(width, height);
-        let handle = Handle::from_rgba(width as u32, height as u32, pixels);
 
         let toolbar = row![
             column![text("FFT window width").size(12), options_fftn].align_x(Alignment::Center),
@@ -815,13 +954,13 @@ impl Viewer {
         });
         let infobar = row(infobar).spacing(5).padding([5, 10]);
 
-        let plot = image(handle)
-            .content_fit(iced::ContentFit::None)
-            .filter_method(image::FilterMethod::Nearest)
-            .height(Length::Fixed(512.0));
+        let plot = plotarea(self.plot.as_ref().unwrap())
+            .marker(self.marker)
+            .cursor(self.cursor);
+
         let plot = MouseArea::new(plot)
             .on_press(Message::PlotLeftPress)
-            .on_move_maybe(self.in_click.then_some(Message::PlotMove))
+            .on_move_maybe((self.in_click || self.is_shift_pressed).then_some(Message::PlotMove))
             .on_release(Message::PlotLeftRelease)
             .on_middle_press(Message::PlotMiddlePress)
             .on_right_press(Message::PlotRightPress)
@@ -838,10 +977,17 @@ impl Viewer {
     }
 }
 
-/// Definition term (DT) text, `term` is centered within 60px, definition is left aligned.
+/// Definition term (DT) text, `term` is centered within 70px, definition is left aligned.
 fn dt_text<'a>(term: &'a str, definition: &'a str) -> Element<'a, Message> {
     row![
-        container(text(term)).center_x(60),
+        container(text(term).style(text::success)).center_x(70),
+        container(text(definition)),
+    ]
+    .into()
+}
+fn dt2_text<'a>(term: &'a str, definition: &'a str) -> Element<'a, Message> {
+    row![
+        container(text(term).style(text::success)).center_x(150),
         container(text(definition)),
     ]
     .into()
