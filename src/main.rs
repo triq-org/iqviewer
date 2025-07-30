@@ -29,8 +29,8 @@ mod mouse_area;
 mod options;
 mod plot_ffi;
 mod plotarea;
+mod watcher;
 
-use dirs::*;
 use items::*;
 use mouse_area::*;
 use options::*;
@@ -87,6 +87,7 @@ impl Default for Viewer {
     fn default() -> Self {
         let mut thumbnails = ItemList::default();
         thumbnails.extend(env::args().skip(1).map(|arg| PathBuf::from(arg)));
+        // Note: watches will be added on watcher::Ready
 
         Self {
             screen: Screen::default(),
@@ -131,6 +132,7 @@ enum Message {
     FileHovered,
     FilesHoveredLeft,
     FileDropped(PathBuf),
+    Watcher(watcher::WatcherEvent),
     ToggleMark,
     ToggleDelete,
     ConfirmMove,
@@ -204,6 +206,7 @@ impl Viewer {
                 Event::Window(window::Event::FileDropped(path)) => Some(Message::FileDropped(path)),
                 _ => None,
             }),
+            Subscription::run(watcher::watcher_subscription).map(Message::Watcher),
         ])
     }
 
@@ -340,21 +343,19 @@ impl Viewer {
                 }
             }
             Message::ToggleGallery => {
-                if self.thumbnails.is_empty() {
-                    // do nothing
-                } else if self.screen == Screen::Editor {
-                    let thumbnail = self.thumbnails.selected().unwrap();
-                    if thumbnail.path() == self.plot.as_ref().unwrap().path() {
-                        self.screen = Screen::Gallery
+                if let Some(thumbnail) = self.thumbnails.selected() {
+                    if self.screen == Screen::Editor {
+                        if Some(thumbnail.path()) == self.plot.as_ref().map(Plot::path) {
+                            self.screen = Screen::Gallery
+                        } else {
+                            let path = thumbnail.path();
+                            self.open_plot(path.to_path_buf());
+                        }
                     } else {
                         let path = thumbnail.path();
                         self.open_plot(path.to_path_buf());
+                        self.screen = Screen::Editor
                     }
-                } else {
-                    let thumbnail = self.thumbnails.selected().unwrap();
-                    let path = thumbnail.path();
-                    self.open_plot(path.to_path_buf());
-                    self.screen = Screen::Editor
                 }
             }
             Message::ToggleSplit => {
@@ -433,19 +434,19 @@ impl Viewer {
             Message::OpenFileDialog => {
                 return Task::perform(Self::open_files_dialog(), Message::FilesSelected);
             }
-            Message::FilesSelected(files) => {
-                if let Some(files) = files {
-                    if !files.is_empty() {
-                        // println!("FilesSelected {:?}", files);
-                        let first = files.first().unwrap();
+            Message::FilesSelected(paths) => {
+                if let Some(paths) = paths {
+                    if !paths.is_empty() {
+                        // println!("FilesSelected {:?}", paths);
+                        let first = paths.first().unwrap();
                         if first.is_file() {
                             self.open_plot(first);
                         } else {
-                            self.cwd = files.first().cloned();
+                            self.cwd = paths.first().cloned();
                         }
                     }
 
-                    self.thumbnails.extend(files);
+                    self.thumbnails.extend(paths);
                 }
             }
             Message::FileHovered => self.hover_count += 1,
@@ -471,9 +472,11 @@ impl Viewer {
 
                     self.cwd = Some(path.clone());
 
-                    let files = read_dir_iq(path).unwrap();
-                    self.thumbnails.extend(files);
+                    self.thumbnails.push(path);
                 }
+            }
+            Message::Watcher(event) => {
+                self.thumbnails.watcher_event(event);
             }
             Message::SelectPrev => {
                 self.thumbnails.dec_selection(1);
@@ -676,10 +679,12 @@ impl Viewer {
     }
 
     fn view_statusbar(&self) -> Container<Message> {
+        let watches = self.thumbnails.count_watches();
         let marked = self.thumbnails.count_marked();
         let to_delete = self.thumbnails.count_to_delete();
         let item_count = self.thumbnails.len();
         let status_text = row![
+            row![icons::eye(), text(format!(" {watches}"))],
             row![icons::grid(), text(format!(" {item_count}"))],
             row![icons::bookmark(), text(format!(" {marked}"))],
             row![icons::trash(), text(format!(" {to_delete}"))],
@@ -707,7 +712,7 @@ impl Viewer {
             row![]
         };
 
-        container(row![selection_text, status_text,].spacing(20))
+        container(row![selection_text, horizontal_space(), status_text,].spacing(20))
             .padding([0, 10]) // top/bottom, left/right
             .width(Length::Fill)
             .style(container::rounded_box)
@@ -727,8 +732,8 @@ impl Viewer {
                         column![
                             text("Hotkeys:"),
                             dt_text("o", "open files"),
-                            dt_text("O", "open dirs"),
-                            dt_text("x", "clear list"),
+                            dt_text("O", "open and watch folder"),
+                            dt_text("x", "clear list and watches"),
                             dt_text("DEL", "remove item"),
                             dt_text("d", "mark file for delete"),
                             dt_text("f", "mark file for move"),
@@ -763,7 +768,7 @@ impl Viewer {
                         ]
                         .padding(20)
                     ],
-                    row![icons::home(), "https://triq.net/"].spacing(6),
+                    row![icons::home(), "https://triq.org/"].spacing(6),
                     row![icons::github(), "https://github.com/triq-org/iqviewer/"].spacing(6),
                 ]
                 .align_x(Alignment::Center),

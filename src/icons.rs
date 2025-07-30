@@ -26,6 +26,10 @@ pub fn drive<'a>() -> Text<'a> {
     icon('\u{E755}')
 }
 
+pub fn eye<'a>() -> Text<'a> {
+    icon('\u{E70A}')
+}
+
 pub fn file<'a>() -> Text<'a> {
     icon('\u{1F4C4}')
 }

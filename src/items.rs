@@ -12,12 +12,15 @@ use iced::widget::image::Handle;
 
 use crate::dirs::read_dir_iq;
 use crate::plot_ffi::Plot;
+use crate::watcher;
 
 /// Basically a Vec<FileItem> but maintains a selection.
 #[derive(Default)]
 pub struct ItemList {
     items: Vec<FileItem>,
     selection: usize,
+    watcher: Option<watcher::FolderWatcher>,
+    recent_folders: Vec<PathBuf>,
 }
 
 //impl Deref for ItemList {
@@ -46,6 +49,9 @@ impl ItemList {
     pub fn clear(&mut self) {
         self.items.clear();
         self.selection = 0;
+        // unwatch all if we have a watcher, nothing to do otherwise
+        self.recent_folders.drain(..);
+        self.watcher.as_mut().map(|w| w.unwatch_all());
     }
 
     pub fn extend<I>(&mut self, iter: I)
@@ -57,19 +63,75 @@ impl ItemList {
         }
     }
 
+    fn refresh_all<I>(&mut self, iter: I)
+    where
+        I: IntoIterator<Item = PathBuf>,
+    {
+        for item in iter {
+            self.refresh(&item)
+        }
+    }
+
+    fn remove_all<I>(&mut self, iter: I)
+    where
+        I: IntoIterator<Item = PathBuf>,
+    {
+        for item in iter {
+            self.remove(&item)
+        }
+    }
+
     pub fn push(&mut self, path: PathBuf) {
         if path.is_file() {
-            self.items.push(FileItem::new(path));
+            self.items.push(FileItem::new(
+                path.canonicalize().expect("Canonicalize path"),
+            ));
         } else {
-            let files = read_dir_iq(path).unwrap();
-            for path in files {
-                self.items.push(FileItem::new(path));
+            match read_dir_iq(&path) {
+                Ok(files) => {
+                    for path in files {
+                        self.items.push(FileItem::new(
+                            path.canonicalize().expect("Canonicalize path"),
+                        ));
+                    }
+
+                    // stash recent folders and try to apply
+                    self.recent_folders.push(path);
+                    if let Some(watcher) = self.watcher.as_mut() {
+                        for path in self.recent_folders.drain(..) {
+                            watcher.watch(path);
+                        }
+                    }
+                }
+                Err(err) => {
+                    println!("Read error {err:?}");
+                }
             }
         }
     }
 
+    fn refresh(&mut self, path: &Path) {
+        for item in self.items.iter_mut() {
+            if item.path == path {
+                item.refresh();
+            }
+        }
+    }
+
+    fn remove(&mut self, path: &Path) {
+        self.items.retain(|item| {
+            item.path != path // Note: path needs to be canonical
+        });
+        // Validate selection
+        self.set_selection(self.selection);
+    }
+
     pub fn get(&self, index: usize) -> Option<&FileItem> {
         self.items.get(index)
+    }
+
+    pub fn count_watches(&self) -> usize {
+        self.watcher.as_ref().map(|w| w.len()).unwrap_or_default()
     }
 
     pub fn count_marked(&self) -> usize {
@@ -107,6 +169,7 @@ impl ItemList {
     pub fn selected_remove(&mut self) {
         if self.has_selection() {
             self.items.remove(self.selection);
+            // Validate selection
             self.set_selection(self.selection);
         }
     }
@@ -142,16 +205,16 @@ impl ItemList {
         self.items.retain(|item| {
             if item.has_mark {
                 // NOTE: only works if the rename points to the same drive, otherwise needs fs::copy and fs::remove_file.
-                let filename = item.as_ref().file_name();
-                if filename.is_none() {
-                    return true; // errored thus retain
-                }
-                let dst_file = dst.join(filename.unwrap());
-                if let Err(err) = fs::rename(&item, &dst_file) {
-                    println!("File move error: {:?}", err);
-                    true // errored thus retain
+                if let Some(filename) = item.as_ref().file_name() {
+                    let dst_file = dst.join(filename);
+                    if let Err(err) = fs::rename(&item, &dst_file) {
+                        println!("File move error: {:?}", err);
+                        true // errored thus retain
+                    } else {
+                        false // remove
+                    }
                 } else {
-                    false // remove
+                    true // errored thus retain
                 }
             } else {
                 true // retain
@@ -172,6 +235,41 @@ impl ItemList {
                 true // retain
             }
         });
+    }
+
+    pub fn watcher_event(&mut self, event: watcher::WatcherEvent) {
+        match event {
+            watcher::WatcherEvent::Ready(watcher) => {
+                self.watcher = Some(watcher);
+
+                // apply recent folders, likely from startup args
+                if let Some(watcher) = self.watcher.as_mut() {
+                    for path in self.recent_folders.drain(..) {
+                        watcher.watch(path);
+                    }
+                }
+            }
+
+            watcher::WatcherEvent::Added(path) => {
+                self.watcher.as_mut().map(|w| w.added(path));
+            }
+
+            watcher::WatcherEvent::Removed(path) => {
+                self.watcher.as_mut().map(|w| w.removed(path));
+            }
+
+            watcher::WatcherEvent::Create(paths) => {
+                self.extend(paths);
+            }
+
+            watcher::WatcherEvent::Modify(paths) => {
+                self.refresh_all(paths);
+            }
+
+            watcher::WatcherEvent::Remove(paths) => {
+                self.remove_all(paths);
+            }
+        }
     }
 }
 
@@ -215,6 +313,21 @@ impl FileItem {
             has_mark: false,
             has_delete: false,
         }
+    }
+
+    pub fn refresh(&mut self) {
+        self.size = if let Ok(metadata) = fs::metadata(&self.path) {
+            Some(metadata.len())
+        } else {
+            None
+        };
+
+        let (bitmap, file_info) = Plot::thumbnail(&self.path);
+        self.handle = Handle::from_rgba(bitmap.width as u32, bitmap.height as u32, bitmap.pixels);
+        self.sample_format = file_info.sample_format;
+        self.sample_count = file_info.sample_count;
+        self.center_freq = file_info.center_freq;
+        self.sample_rate = file_info.sample_rate;
     }
 
     pub fn path(&self) -> &Path {

@@ -4,15 +4,17 @@ A somewhat minimal hack of an I/Q data file browser and viewer app.
 
 | OS | Arch |
 |---|---|
-| Linux   | [x86_64](https://github.com/triq-org/iqviewer/releases/download/0.4/IQViewer-Linux-amd64.zip) &nbsp; [ARM64](https://github.com/triq-org/iqviewer/releases/download/0.4/IQViewer-Linux-arm64.zip) &nbsp; [ARMv7](https://github.com/triq-org/iqviewer/releases/download/0.4/IQViewer-Linux-armv7.zip)|
-| NetBSD  | [x86_64](https://github.com/triq-org/iqviewer/releases/download/0.4/IQViewer-NetBSD-amd64.zip) |
-| FreeBSD | [x86_64](https://github.com/triq-org/iqviewer/releases/download/0.4/IQViewer-FreeBSD-amd64.zip) |
-| Windows | [x64](https://github.com/triq-org/iqviewer/releases/download/0.4/IQViewer-Windows-x64.zip) |
-| macOS   | [intel + arm](https://github.com/triq-org/iqviewer/releases/download/0.4/IQViewer.dmg) |
+| Linux   | [x86_64](https://github.com/triq-org/iqviewer/releases/download/0.5/IQViewer-Linux-amd64.zip) &nbsp; [ARM64](https://github.com/triq-org/iqviewer/releases/download/0.5/IQViewer-Linux-arm64.zip) &nbsp; [ARMv7](https://github.com/triq-org/iqviewer/releases/download/0.5/IQViewer-Linux-armv7.zip)|
+| NetBSD  | [x86_64](https://github.com/triq-org/iqviewer/releases/download/0.5/IQViewer-NetBSD-amd64.zip) |
+| FreeBSD | [x86_64](https://github.com/triq-org/iqviewer/releases/download/0.5/IQViewer-FreeBSD-amd64.zip) |
+| Windows | [x64](https://github.com/triq-org/iqviewer/releases/download/0.5/IQViewer-Windows-x64.zip) |
+| macOS   | [intel + arm](https://github.com/triq-org/iqviewer/releases/download/0.5/IQViewer.dmg) |
 
 ![Screenshot](web/IQViewer.png)
 
 Supports files and folders as CLI arguments and drag and drop of files and folders.
+
+Folders added as CLI argument, opened or dropped will be watched for changes.
 
 For ideas on more features, feedback and discussion see this [Issue](https://github.com/triq-org/iqviewer/issues/1)
 
@@ -37,8 +39,8 @@ For ideas on more features, feedback and discussion see this [Issue](https://git
 
 ### Browser
 - <kbd>o</kbd> → open files
-- <kbd>O</kbd> → open dirs
-- <kbd>x</kbd> → clear list
+- <kbd>O</kbd> → open and watch folder
+- <kbd>x</kbd> → clear list and watches
 - <kbd>DEL</kbd> → remove item
 - <kbd>d</kbd> → mark file for delete
 - <kbd>f</kbd> → mark file for move
