@@ -14,8 +14,7 @@ use std::usize;
 use iced::mouse::ScrollDelta;
 use iced::widget::scrollable::RelativeOffset;
 use iced::widget::{
-    Column, Container, Stack, button, column, container, grid, horizontal_space, image, pick_list,
-    row, scrollable, slider, text,
+    button, column, container, focus_next, grid, horizontal_space, image, pick_list, row, scrollable, slider, text, text_input, Column, Container, Stack
 };
 use iced::{
     Alignment, Center, Element, Event, Length, Point, Subscription, Task, Theme, event, keyboard,
@@ -121,7 +120,11 @@ enum Message {
     CloseEditor,
     ToggleGallery,
     ToggleSplit,
+    FilterChanged(String),
+    FocusFilter,
+    FocusNext,
     ThumbnailSize(f32),
+    ThumbnailSizeToggle,
     GalleryScrolled(scrollable::Viewport),
     RemoveSelected,
     ClearGallery,
@@ -230,6 +233,8 @@ impl Viewer {
             (Named(Key::Escape), NONE) => Some(Message::CloseEditor),
             (Named(Key::Space), NONE) => Some(Message::ToggleGallery),
             (Named(Key::Delete), NONE) => Some(Message::RemoveSelected),
+            (Named(Key::Tab), NONE) => Some(Message::FocusNext),
+            (Named(Key::Enter), NONE) => Some(Message::FocusNext),
             (Character("d"), SHIFT) => Some(Message::ConfirmDelete),
             (Character("m"), SHIFT) => Some(Message::ConfirmMove),
             (Character("o"), SHIFT) => Some(Message::OpenDirDialog),
@@ -237,10 +242,10 @@ impl Viewer {
             (Character("x"), NONE) => Some(Message::ClearGallery),
             (Character("q"), NONE) => Some(Message::Quit),
             (Character("f"), NONE) => Some(Message::ToggleMark),
+            (Character("m"), NONE) => Some(Message::ToggleMark),
             (Character("d"), NONE) => Some(Message::ToggleDelete),
-            (Character("s"), NONE) => Some(Message::ThumbnailSize(64.0)),
-            (Character("m"), NONE) => Some(Message::ThumbnailSize(128.0)),
-            (Character("l"), NONE) => Some(Message::ThumbnailSize(256.0)),
+            (Character("s"), NONE) => Some(Message::FocusFilter),
+            (Character("l"), NONE) => Some(Message::ThumbnailSizeToggle),
             (Character("+"), NONE) => Some(Message::IncrementZoom),
             (Character("-"), NONE) => Some(Message::DecrementZoom),
             (Character("0"), NONE) => Some(Message::ResetZoom),
@@ -382,6 +387,20 @@ impl Viewer {
             }
             Message::ThumbnailSize(size) => {
                 self.thumbnail_size = size as u32;
+            }
+            Message::ThumbnailSizeToggle => {
+                if self.thumbnail_size > 128 {
+                    self.thumbnail_size = 128;
+                } else if self.thumbnail_size > 64 {
+                    self.thumbnail_size = 64
+                } else {
+                    self.thumbnail_size = 256;
+                }
+            }
+            Message::FocusFilter => return Task::batch([text_input::focus("filter"), text_input::select_all("filter")]),
+            Message::FocusNext => return focus_next(),
+            Message::FilterChanged(content) => {
+                self.thumbnails.set_filter(&content);
             }
             Message::ClearGallery => {
                 self.screen = Screen::Gallery;
@@ -680,12 +699,14 @@ impl Viewer {
 
     fn view_statusbar(&self) -> Container<Message> {
         let watches = self.thumbnails.count_watches();
+        let filtered = self.thumbnails.len();
         let marked = self.thumbnails.count_marked();
         let to_delete = self.thumbnails.count_to_delete();
-        let item_count = self.thumbnails.len();
+        let item_count = self.thumbnails.unfiltered_len();
         let status_text = row![
             row![icons::eye(), text(format!(" {watches}"))],
             row![icons::grid(), text(format!(" {item_count}"))],
+            row![icons::search(), text(format!(" {filtered}"))],
             row![icons::bookmark(), text(format!(" {marked}"))],
             row![icons::trash(), text(format!(" {to_delete}"))],
         ]
@@ -740,9 +761,10 @@ impl Viewer {
                             dt_text("D", "delete marked"),
                             dt_text("M", "move marked"),
                             dt_text("SPACE", "toggle viewer"),
+                            dt_text("l", "toggle thumbnail size"),
                             dt_text("z", "toggle viewer size"),
+                            dt_text("s", "focus filter/search"),
                             dt_text("q", "quit app"),
-                            dt_text("s m l", "thumbnail size"),
                             dt_text("h", "toggle this help"),
                             dt_text("↑↓←→", "move selection"),
                             dt_text("⤒⤓", "move first / last"),
@@ -862,6 +884,10 @@ impl Viewer {
             button(row![icons::help(), " Help"])
                 .style(button::text)
                 .on_press(Message::ShowHelp),
+            horizontal_space(),
+            text_input("Filter...", self.thumbnails.filter())
+                .id("filter")
+                .on_input(Message::FilterChanged),
             horizontal_space(),
             container(slider(
                 64.0..=256.0,

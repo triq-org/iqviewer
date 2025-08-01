@@ -70,6 +70,10 @@ pub fn resize_small<'a>() -> Text<'a> {
     icon('\u{E744}')
 }
 
+pub fn search<'a>() -> Text<'a> {
+    icon('\u{1F50D}')
+}
+
 pub fn signal<'a>() -> Text<'a> {
     icon('\u{1F4F6}')
 }

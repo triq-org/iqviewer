@@ -14,41 +14,35 @@ use crate::dirs::read_dir_iq;
 use crate::plot_ffi::Plot;
 use crate::watcher;
 
-/// Basically a Vec<FileItem> but maintains a selection.
+/// Basically a Vec<FileItem> but maintains a filter and selection.
 #[derive(Default)]
 pub struct ItemList {
     items: Vec<FileItem>,
+    prev_selection: usize,
     selection: usize,
+    filter_map: Vec<usize>,
+    filter_text: String,
     watcher: Option<watcher::FolderWatcher>,
     recent_folders: Vec<PathBuf>,
 }
 
-//impl Deref for ItemList {
-//    type Target = Vec<FileItem>;
-//
-//    fn deref(&self) -> &Self::Target {
-//        &self.items
-//    }
-//}
-//
-//impl DerefMut for ItemList {
-//    fn deref_mut(&mut self) -> &mut Self::Target {
-//        &mut self.items
-//    }
-//}
-
 impl ItemList {
     pub fn len(&self) -> usize {
-        self.items.len()
+        self.filter_map.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.items.is_empty()
+        self.filter_map.is_empty()
+    }
+
+    pub fn unfiltered_len(&self) -> usize {
+        self.items.len()
     }
 
     pub fn clear(&mut self) {
         self.items.clear();
-        self.selection = 0;
+        // also validates selection
+        self.set_filter("");
         // unwatch all if we have a watcher, nothing to do otherwise
         self.recent_folders.drain(..);
         self.watcher.as_mut().map(|w| w.unwatch_all());
@@ -108,6 +102,7 @@ impl ItemList {
                 }
             }
         }
+        self.apply_filter();
     }
 
     fn refresh(&mut self, path: &Path) {
@@ -122,12 +117,21 @@ impl ItemList {
         self.items.retain(|item| {
             item.path != path // Note: path needs to be canonical
         });
-        // Validate selection
-        self.set_selection(self.selection);
+        // also validates selection
+        self.apply_filter();
     }
 
     pub fn get(&self, index: usize) -> Option<&FileItem> {
-        self.items.get(index)
+        self.filter_map.get(index).and_then(|&i| self.items.get(i))
+    }
+
+    pub fn filter(&self) -> &str {
+        &self.filter_text
+    }
+
+    pub fn set_filter(&mut self, filter: &str) {
+        self.filter_text = filter.to_ascii_lowercase();
+        self.apply_filter();
     }
 
     pub fn count_watches(&self) -> usize {
@@ -155,22 +159,24 @@ impl ItemList {
     }
 
     pub fn set_selection(&mut self, index: usize) {
-        self.selection = index.min(self.len() - 1);
+        self.selection = index.min(self.len().saturating_sub(1));
+        self.prev_selection = self.selection;
     }
 
     pub fn inc_selection(&mut self, offset: usize) {
-        self.selection = self.selection.saturating_add(offset).min(self.len() - 1);
+        self.set_selection(self.selection.saturating_add(offset));
     }
 
     pub fn dec_selection(&mut self, offset: usize) {
-        self.selection = self.selection.saturating_sub(offset);
+        self.set_selection(self.selection.saturating_sub(offset));
     }
 
     pub fn selected_remove(&mut self) {
         if self.has_selection() {
-            self.items.remove(self.selection);
-            // Validate selection
-            self.set_selection(self.selection);
+            let index = self.filter_map[self.selection];
+            self.items.remove(index);
+            // also validates selection
+            self.apply_filter();
         }
     }
 
@@ -183,22 +189,36 @@ impl ItemList {
     }
 
     pub fn selected(&self) -> Option<&FileItem> {
-        self.items.get(self.selection)
+        self.filter_map.get(self.selection).and_then(|&i| self.items.get(i))
     }
 
     pub fn selected_mut(&mut self) -> Option<&mut FileItem> {
-        self.items.get_mut(self.selection)
+        self.filter_map.get(self.selection).and_then(|&i| self.items.get_mut(i))
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &FileItem> {
-        self.items.iter()
+        self.filter_map.iter().map(|&i| &self.items[i])
     }
 
-    #[allow(unused)]
-    pub fn filtered<'a>(&'a self, filter: &str) -> impl Iterator<Item = &'a FileItem> {
-        self.items
-            .iter()
-            .filter(move |&t| t.filename().contains(filter))
+    /// Rebuild filter_map, try to maintain the selection.
+    fn apply_filter(&mut self) {
+        let filter = self.filter_text.split_ascii_whitespace();
+        // get previous selection index
+        let prev_index = self.filter_map.get(self.prev_selection).copied().unwrap_or_default();
+        // new selection
+        let mut selection = 0;
+        self.filter_map.clear();
+        for (i, item) in self.items.iter().enumerate() {
+            // test filter condition
+            if item.matches_all(filter.clone()) {
+                self.filter_map.push(i);
+                // move selection along until we reach the previous index
+                if i < prev_index {
+                    selection += 1;
+                }
+            }
+        }
+        self.set_selection(selection);
     }
 
     pub fn move_marked_to(&mut self, dst: PathBuf) {
@@ -220,6 +240,7 @@ impl ItemList {
                 true // retain
             }
         });
+        self.apply_filter();
     }
 
     pub fn delete_marked(&mut self) {
@@ -235,6 +256,7 @@ impl ItemList {
                 true // retain
             }
         });
+        self.apply_filter();
     }
 
     pub fn watcher_event(&mut self, event: watcher::WatcherEvent) {
@@ -283,6 +305,7 @@ pub struct FileItem {
     handle: Handle,
     has_mark: bool,
     has_delete: bool,
+    metadata: String,
 }
 
 impl AsRef<Path> for FileItem {
@@ -302,6 +325,8 @@ impl FileItem {
         let (bitmap, file_info) = Plot::thumbnail(&path);
         let handle = Handle::from_rgba(bitmap.width as u32, bitmap.height as u32, bitmap.pixels);
 
+        let metadata = format!("{} {} {:.0}M {:.0}k", path.to_string_lossy(), file_info.sample_format, file_info.center_freq / 1_000_000.0, file_info.sample_rate / 1_000.0).to_ascii_lowercase();
+
         Self {
             path,
             size,
@@ -312,6 +337,7 @@ impl FileItem {
             handle,
             has_mark: false,
             has_delete: false,
+            metadata,
         }
     }
 
@@ -324,10 +350,13 @@ impl FileItem {
 
         let (bitmap, file_info) = Plot::thumbnail(&self.path);
         self.handle = Handle::from_rgba(bitmap.width as u32, bitmap.height as u32, bitmap.pixels);
+
         self.sample_format = file_info.sample_format;
         self.sample_count = file_info.sample_count;
         self.center_freq = file_info.center_freq;
         self.sample_rate = file_info.sample_rate;
+
+        self.metadata = format!("{} {} {:.0}M {:.0}k", self.path.to_string_lossy(), file_info.sample_format, file_info.center_freq / 1_000_000.0, file_info.sample_rate / 1_000.0).to_ascii_lowercase();
     }
 
     pub fn path(&self) -> &Path {
@@ -379,5 +408,10 @@ impl FileItem {
             .file_name()
             .map(std::ffi::OsStr::to_string_lossy)
             .unwrap_or_default()
+    }
+
+    /// Tests if all filter conditions match
+    fn matches_all<'a>(&self, filter: impl IntoIterator<Item = &'a str>) -> bool {
+        filter.into_iter().all(|filter| self.metadata.contains(filter))
     }
 }
