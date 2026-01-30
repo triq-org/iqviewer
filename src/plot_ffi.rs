@@ -146,6 +146,7 @@ const SAMPLE_FORMAT: &[&str] = &[
     "CF64",
 ];
 
+#[derive(Debug)]
 pub struct FileInfo {
     pub sample_format: &'static str,
     pub sample_count: u64,
@@ -153,7 +154,7 @@ pub struct FileInfo {
     pub sample_rate: f64,
 }
 
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct PlotMarker {
     pub sample: u64,
     pub freq: f64,
@@ -162,6 +163,7 @@ pub struct PlotMarker {
 pub struct Plot {
     path: PathBuf,
     plot: *mut splt_t,
+    needs_redraw: std::cell::Cell<bool>,
 }
 
 impl Drop for Plot {
@@ -181,6 +183,7 @@ impl Plot {
         Self {
             path: path.to_path_buf(),
             plot: plot,
+            needs_redraw: true.into(),
         }
     }
 
@@ -188,7 +191,8 @@ impl Plot {
         let path = path.as_ref();
         let plot = Self::create_plot(path);
         self.path = path.to_path_buf();
-        self.plot = plot
+        self.plot = plot;
+        self.needs_redraw.set(true);
     }
 
     pub fn path(&self) -> &Path {
@@ -227,6 +231,10 @@ impl Plot {
         };
 
         (RawBitmap::from_rgba(pixels, width, height), file_info)
+    }
+
+    pub fn needs_redraw(&self) -> bool {
+        self.needs_redraw.get()
     }
 
     fn create_plot(path: impl AsRef<Path>) -> *mut splt_t {
@@ -276,33 +284,43 @@ impl Plot {
     }
 
     pub fn set_zoom(&self, zoom: u32) {
+        self.needs_redraw.set(true);
         unsafe { splt_set_zoom(self.plot, zoom) }
     }
     pub fn set_db_gain(&self, db_gain: f32) {
+        self.needs_redraw.set(true);
         unsafe { splt_set_db_gain(self.plot, db_gain) }
     }
     pub fn set_db_range(&self, db_range: f32) {
+        self.needs_redraw.set(true);
         unsafe { splt_set_db_range(self.plot, db_range) }
     }
     pub fn set_cmap(&self, cmap: u32) {
+        self.needs_redraw.set(true);
         unsafe { splt_set_cmap(self.plot, cmap) }
     }
     pub fn set_fft_size(&self, fft_size: u32) {
+        self.needs_redraw.set(true);
         unsafe { splt_set_fft_size(self.plot, fft_size) }
     }
     pub fn set_fft_window(&self, fft_window_name: u8) {
+        self.needs_redraw.set(true);
         unsafe { splt_set_fft_window(self.plot, fft_window_name) }
     }
     pub fn set_layout_direction(&self, direction: u8) {
+        self.needs_redraw.set(true);
         unsafe { splt_set_layout_direction(self.plot, direction) }
     }
     pub fn set_layout_histo_width(&self, histo_width: u32) {
+        self.needs_redraw.set(true);
         unsafe { splt_set_layout_histo_width(self.plot, histo_width) }
     }
     pub fn set_layout_deci_height(&self, deci_height: u32) {
+        self.needs_redraw.set(true);
         unsafe { splt_set_layout_deci_height(self.plot, deci_height) }
     }
     pub fn set_layout_ask_height(&self, ask_height: u32) {
+        self.needs_redraw.set(true);
         unsafe { splt_set_layout_ask_height(self.plot, ask_height) }
     }
 
@@ -312,13 +330,16 @@ impl Plot {
     pub fn freq_at_pos(&self, x: u32, y: u32) -> f64 {
         unsafe { splt_get_freq_at_pos(self.plot, x, y) }
     }
-    pub fn pan_to_pos(&self, sample: u64, x: u32, y: u32) {
+    pub fn set_pan_to_pos(&self, sample: u64, x: u32, y: u32) {
+        self.needs_redraw.set(true);
         unsafe { splt_set_pan_to_pos(self.plot, sample, x, y) }
     }
     pub fn set_pan_by(&self, dx: i32, dy: i32) {
+        self.needs_redraw.set(true);
         unsafe { splt_set_pan_by(self.plot, dx, dy) }
     }
     pub fn set_zoom_at(&self, x: u32, y: u32, zoom: u32) {
+        self.needs_redraw.set(true);
         unsafe { splt_set_zoom_at(self.plot, x, y, zoom) }
     }
 
@@ -393,6 +414,8 @@ impl Plot {
         unsafe {
             splt_draw(self.plot, pixels.as_mut_ptr(), width as u32, height as u32);
         }
+
+        self.needs_redraw.set(false);
 
         RawBitmap::from_rgba(pixels, width, height)
     }

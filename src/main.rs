@@ -14,7 +14,7 @@ use std::usize;
 use iced::mouse::ScrollDelta;
 use iced::widget::scrollable::RelativeOffset;
 use iced::widget::{
-    button, column, container, focus_next, grid, horizontal_space, image, pick_list, row, scrollable, slider, text, text_input, Column, Container, Stack
+    Column, Container, Stack, button, column, container, grid, image, operation, pick_list, row, scrollable, slider, space, text, text_input
 };
 use iced::{
     Alignment, Center, Element, Event, Length, Point, Subscription, Task, Theme, event, keyboard,
@@ -201,8 +201,7 @@ impl Viewer {
 
     fn subscription(&self) -> Subscription<Message> {
         Subscription::batch([
-            keyboard::on_key_press(Self::on_key_press),
-            keyboard::on_key_release(Self::on_key_release),
+            keyboard::listen().filter_map(Self::on_key_event),
             event::listen_with(|event, _status, _windows| match event {
                 Event::Window(window::Event::FileHovered(_path)) => Some(Message::FileHovered),
                 Event::Window(window::Event::FilesHoveredLeft) => Some(Message::FilesHoveredLeft),
@@ -211,6 +210,16 @@ impl Viewer {
             }),
             Subscription::run(watcher::watcher_subscription).map(Message::Watcher),
         ])
+    }
+
+    fn on_key_event(event: keyboard::Event) -> Option<Message> {
+        match event {
+            keyboard::Event::KeyPressed { key, modifiers, .. } =>
+                Self::on_key_press(key, modifiers),
+            keyboard::Event::KeyReleased { key, modifiers, .. } =>
+                Self::on_key_release(key, modifiers),
+            keyboard::Event::ModifiersChanged(_modifiers) => { None },
+        }
     }
 
     fn on_key_press(key: keyboard::Key, modifiers: keyboard::Modifiers) -> Option<Message> {
@@ -334,7 +343,7 @@ impl Viewer {
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::Quit => return window::get_latest().and_then(window::close),
+            Message::Quit => return iced::exit(),
             Message::ShowHelp => {
                 self.show_help = !self.show_help;
             }
@@ -397,8 +406,8 @@ impl Viewer {
                     self.thumbnail_size = 256;
                 }
             }
-            Message::FocusFilter => return Task::batch([text_input::focus("filter"), text_input::select_all("filter")]),
-            Message::FocusNext => return focus_next(),
+            Message::FocusFilter => return Task::batch([operation::focus("filter"), operation::select_all("filter")]),
+            Message::FocusNext => return operation::focus_next(),
             Message::FilterChanged(content) => {
                 self.thumbnails.set_filter(&content);
             }
@@ -500,33 +509,33 @@ impl Viewer {
             Message::SelectPrev => {
                 self.thumbnails.dec_selection(1);
                 let y = self.thumbnails_scroll_position();
-                return scrollable::snap_to("gallery", RelativeOffset { x: 0.0, y });
+                return operation::snap_to("gallery", RelativeOffset { x: 0.0, y });
             }
             Message::SelectNext => {
                 self.thumbnails.inc_selection(1);
                 let y = self.thumbnails_scroll_position();
-                return scrollable::snap_to("gallery", RelativeOffset { x: 0.0, y });
+                return operation::snap_to("gallery", RelativeOffset { x: 0.0, y });
             }
             Message::SelectUp => {
                 self.thumbnails.dec_selection(self.cells_per_row);
                 let y = self.thumbnails_scroll_position();
-                return scrollable::snap_to("gallery", RelativeOffset { x: 0.0, y });
+                return operation::snap_to("gallery", RelativeOffset { x: 0.0, y });
             }
             Message::SelectDown => {
                 self.thumbnails.inc_selection(self.cells_per_row);
                 let y = self.thumbnails_scroll_position();
-                return scrollable::snap_to("gallery", RelativeOffset { x: 0.0, y });
+                return operation::snap_to("gallery", RelativeOffset { x: 0.0, y });
             }
             Message::SelectHome => {
                 self.thumbnails.set_selection(0);
-                return scrollable::snap_to(
+                return operation::snap_to(
                     "gallery",
                     scrollable::RelativeOffset { x: 0.0, y: 0.0 },
                 );
             }
             Message::SelectEnd => {
                 self.thumbnails.set_selection(usize::MAX);
-                return scrollable::snap_to(
+                return operation::snap_to(
                     "gallery",
                     scrollable::RelativeOffset { x: 0.0, y: 1.0 },
                 );
@@ -615,14 +624,14 @@ impl Viewer {
                 self.cursor = position;
                 if self.in_click {
                     if let Some(plot) = self.plot.as_mut() {
-                        plot.pan_to_pos(self.clicked_sample, position.x as u32, position.y as u32);
+                        plot.set_pan_to_pos(self.clicked_sample, position.x as u32, position.y as u32);
                     }
                 }
             }
             Message::PlotLeftRelease(position) => {
                 if self.in_click {
                     if let Some(plot) = self.plot.as_mut() {
-                        plot.pan_to_pos(self.clicked_sample, position.x as u32, position.y as u32);
+                        plot.set_pan_to_pos(self.clicked_sample, position.x as u32, position.y as u32);
                     }
                     self.in_click = false;
                 }
@@ -697,7 +706,7 @@ impl Viewer {
         }
     }
 
-    fn view_statusbar(&self) -> Container<Message> {
+    fn view_statusbar(&self) -> Container<'_, Message> {
         let watches = self.thumbnails.count_watches();
         let filtered = self.thumbnails.len();
         let marked = self.thumbnails.count_marked();
@@ -733,13 +742,13 @@ impl Viewer {
             row![]
         };
 
-        container(row![selection_text, horizontal_space(), status_text,].spacing(20))
+        container(row![selection_text, space::horizontal(), status_text,].spacing(20))
             .padding([0, 10]) // top/bottom, left/right
             .width(Length::Fill)
             .style(container::rounded_box)
     }
 
-    fn view_help(&self) -> Container<Message> {
+    fn view_help(&self) -> Container<'_, Message> {
         container(
             container(
                 column![
@@ -827,7 +836,7 @@ impl Viewer {
         }
     }
 
-    fn view_thumbnails(&self) -> Container<Message> {
+    fn view_thumbnails(&self) -> Container<'_, Message> {
         //let thumbnails: Vec<iced::Element<'_, Message>> = vec![];
         let thumbnails = self.thumbnails.iter().enumerate().map(|(index, thumbnail)|
                 // TODO: mouse_area for double_click?
@@ -870,7 +879,7 @@ impl Viewer {
         .padding(10)
     }
 
-    fn view_menubar(&self) -> Container<Message> {
+    fn view_menubar(&self) -> Container<'_, Message> {
         let menubar = row![
             button(row![icons::folder(), " Open folder"])
                 .style(button::text)
@@ -884,11 +893,11 @@ impl Viewer {
             button(row![icons::help(), " Help"])
                 .style(button::text)
                 .on_press(Message::ShowHelp),
-            horizontal_space(),
+            space::horizontal(),
             text_input("Filter...", self.thumbnails.filter())
                 .id("filter")
                 .on_input(Message::FilterChanged),
-            horizontal_space(),
+            space::horizontal(),
             container(slider(
                 64.0..=256.0,
                 self.thumbnail_size as f32,
@@ -904,7 +913,7 @@ impl Viewer {
             .style(container::rounded_box)
     }
 
-    fn view_gallery(&self) -> Column<Message> {
+    fn view_gallery(&self) -> Column<'_, Message> {
         let content = if self.thumbnails.is_empty() {
             self.view_help()
         } else {
@@ -914,7 +923,7 @@ impl Viewer {
         column![self.view_menubar(), content,].align_x(Center)
     }
 
-    fn view_editor(&self) -> Column<Message> {
+    fn view_editor(&self) -> Column<'_, Message> {
         let options_fftn =
             pick_list(FftSize::VARIANTS, self.opts_fftn, Message::PickFftn).placeholder("FFT N");
 

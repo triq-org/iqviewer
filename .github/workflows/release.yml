@@ -31,7 +31,7 @@ jobs:
 
   macos_job:
     needs: release_job
-    runs-on: macos-13
+    runs-on: macos-14
     name: Build on macOS
     env:
       NAME: IQViewer

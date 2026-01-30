@@ -8,8 +8,8 @@ version = "0.6.0"
 edition = "2024"
 
 [dependencies]
-iced = { git = "https://github.com/iced-rs/iced.git", branch = "master", features = ["image-without-codecs", "advanced"] }
+iced = { version = "0.14.0", features = ["image-without-codecs", "advanced"] }
 # iced_test = "0.0.0"
 memmap2 = "0.9.5"
 notify = "8.1.0"
-rfd = "0.15.3"
+rfd = "0.17.2"
