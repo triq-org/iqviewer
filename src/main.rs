@@ -10,6 +10,7 @@ use rfd::{FileDialog, MessageButtons, MessageDialog, MessageDialogResult, Messag
 use std::env;
 use std::path::{Path, PathBuf};
 use std::usize;
+use std::io::Error;
 
 use iced::mouse::ScrollDelta;
 use iced::widget::scrollable::RelativeOffset;
@@ -321,13 +322,13 @@ impl Viewer {
         y
     }
 
-    fn open_plot(&mut self, path: impl AsRef<Path>) {
+    fn open_plot(&mut self, path: impl AsRef<Path>) -> Result<(), Error> {
         let path = path.as_ref();
         if self.plot.is_none() {
-            let plot = Plot::with_path(path);
+            let plot = Plot::with_path(path)?;
             self.plot = Some(plot);
         } else {
-            self.plot.as_mut().unwrap().open(path);
+            self.plot.as_mut().unwrap().open(path)?;
         }
         // Apply all settings
         if let Some(plot) = self.plot.as_ref() {
@@ -339,6 +340,7 @@ impl Viewer {
             plot.set_cmap(self.opts_colormap.unwrap_or_default().to_value() as u32);
             plot.set_layout_direction(self.opts_orientation.unwrap_or_default().to_value() as u8);
         }
+        Ok(())
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
@@ -363,11 +365,11 @@ impl Viewer {
                             self.screen = Screen::Gallery
                         } else {
                             let path = thumbnail.path();
-                            self.open_plot(path.to_path_buf());
+                            let _ = self.open_plot(path.to_path_buf()); // ignore file error
                         }
                     } else {
                         let path = thumbnail.path();
-                        self.open_plot(path.to_path_buf());
+                        let _ = self.open_plot(path.to_path_buf()); // ignore file error
                         self.screen = Screen::Editor
                     }
                 }
@@ -450,7 +452,7 @@ impl Viewer {
             Message::OpenThumbnail(index) => {
                 if self.thumbnails.selection() == index {
                     let path = self.thumbnails.selected().unwrap().path();
-                    self.open_plot(path.to_path_buf());
+                    let _ = self.open_plot(path.to_path_buf()); // ignore file error
                     self.screen = Screen::Editor
                 } else {
                     self.thumbnails.set_selection(index);
@@ -468,7 +470,7 @@ impl Viewer {
                         // println!("FilesSelected {:?}", paths);
                         let first = paths.first().unwrap();
                         if first.is_file() {
-                            self.open_plot(first);
+                            let _ = self.open_plot(first); // ignore file error
                         } else {
                             self.cwd = paths.first().cloned();
                         }
@@ -493,7 +495,7 @@ impl Viewer {
                     }
 
                     self.thumbnails.push(path.clone());
-                    self.open_plot(&path);
+                    let _= self.open_plot(&path); // ignore file error
                 } else {
                     // dir of files: close editor
                     self.screen = Screen::Gallery;

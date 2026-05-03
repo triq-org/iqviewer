@@ -4,6 +4,7 @@
 //! I/Q Viewer -- Item handling.
 
 use std::fs;
+use std::io::Error;
 //use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::usize;
@@ -79,14 +80,14 @@ impl ItemList {
         if path.is_file() {
             self.items.push(FileItem::new(
                 path.canonicalize().expect("Canonicalize path"),
-            ));
+            ).unwrap());
         } else {
             match read_dir_iq(&path) {
                 Ok(files) => {
                     for path in files {
                         self.items.push(FileItem::new(
                             path.canonicalize().expect("Canonicalize path"),
-                        ));
+                        ).unwrap());
                     }
 
                     // stash recent folders and try to apply
@@ -108,7 +109,7 @@ impl ItemList {
     fn refresh(&mut self, path: &Path) {
         for item in self.items.iter_mut() {
             if item.path == path {
-                item.refresh();
+                let _ = item.refresh(); // ignore file error
             }
         }
     }
@@ -315,19 +316,19 @@ impl AsRef<Path> for FileItem {
 }
 
 impl FileItem {
-    pub fn new(path: PathBuf) -> Self {
+    pub fn new(path: PathBuf) -> Result<Self, Error> {
         let size = if let Ok(metadata) = fs::metadata(&path) {
             Some(metadata.len())
         } else {
             None
         };
 
-        let (bitmap, file_info) = Plot::thumbnail(&path);
+        let (bitmap, file_info) = Plot::thumbnail(&path)?;
         let handle = Handle::from_rgba(bitmap.width as u32, bitmap.height as u32, bitmap.pixels);
 
         let metadata = format!("{} {} {:.0}M {:.0}k", path.to_string_lossy(), file_info.sample_format, file_info.center_freq / 1_000_000.0, file_info.sample_rate / 1_000.0).to_ascii_lowercase();
 
-        Self {
+        Ok(Self {
             path,
             size,
             sample_format: file_info.sample_format,
@@ -338,17 +339,17 @@ impl FileItem {
             has_mark: false,
             has_delete: false,
             metadata,
-        }
+        })
     }
 
-    pub fn refresh(&mut self) {
+    pub fn refresh(&mut self) -> Result<(), Error> {
         self.size = if let Ok(metadata) = fs::metadata(&self.path) {
             Some(metadata.len())
         } else {
             None
         };
 
-        let (bitmap, file_info) = Plot::thumbnail(&self.path);
+        let (bitmap, file_info) = Plot::thumbnail(&self.path)?;
         self.handle = Handle::from_rgba(bitmap.width as u32, bitmap.height as u32, bitmap.pixels);
 
         self.sample_format = file_info.sample_format;
@@ -357,6 +358,8 @@ impl FileItem {
         self.sample_rate = file_info.sample_rate;
 
         self.metadata = format!("{} {} {:.0}M {:.0}k", self.path.to_string_lossy(), file_info.sample_format, file_info.center_freq / 1_000_000.0, file_info.sample_rate / 1_000.0).to_ascii_lowercase();
+
+        Ok(())
     }
 
     pub fn path(&self) -> &Path {

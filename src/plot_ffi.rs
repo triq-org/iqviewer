@@ -6,6 +6,7 @@
 //! The foreign function interface (C-API) which exposes this library.
 
 use std::ffi::{CString, c_char, c_void};
+use std::io::{Error, ErrorKind};
 
 #[allow(non_camel_case_types)]
 type splt_t = c_void;
@@ -144,6 +145,20 @@ const SAMPLE_FORMAT: &[&str] = &[
     "CS64",
     "CF32",
     "CF64",
+    "U4",
+    "S4",
+    "U8",
+    "S8",
+    "U12",
+    "S12",
+    "U16",
+    "S16",
+    "U32",
+    "S32",
+    "U64",
+    "S64",
+    "F32",
+    "F64",
 ];
 
 #[derive(Debug)]
@@ -176,32 +191,45 @@ impl Drop for Plot {
 
 #[allow(unused)]
 impl Plot {
-    pub fn with_path(path: impl AsRef<Path>) -> Self {
+    pub fn with_path(path: impl AsRef<Path>) -> Result<Self, Error> {
         let path = path.as_ref();
         let plot = Self::create_plot(path);
+        if plot.is_null() {
+            return Err(Error::new(ErrorKind::InvalidFilename, "File not found"))
+        }
 
-        Self {
+        Ok(Self {
             path: path.to_path_buf(),
             plot: plot,
             needs_redraw: true.into(),
-        }
+        })
     }
 
-    pub fn open(&mut self, path: impl AsRef<Path>) {
+    pub fn open(&mut self, path: impl AsRef<Path>) -> Result<(), Error> {
         let path = path.as_ref();
         let plot = Self::create_plot(path);
+        if plot.is_null() {
+            return Err(Error::new(ErrorKind::InvalidFilename, "File not found"))
+
+        }
+
         self.path = path.to_path_buf();
         self.plot = plot;
         self.needs_redraw.set(true);
+
+        Ok(())
     }
 
     pub fn path(&self) -> &Path {
         self.path.as_path()
     }
 
-    pub fn thumbnail(path: impl AsRef<Path>) -> (RawBitmap, FileInfo) {
+    pub fn thumbnail(path: impl AsRef<Path>) -> Result<(RawBitmap, FileInfo), Error> {
         let path = path.as_ref();
         let plot = Self::create_plot(path);
+        if plot.is_null() {
+            return Err(Error::new(ErrorKind::InvalidFilename, "File not found"))
+        }
 
         let width = 256;
         let height = 256;
@@ -230,7 +258,7 @@ impl Plot {
             sample_rate: unsafe { splt_get_sample_rate(plot) },
         };
 
-        (RawBitmap::from_rgba(pixels, width, height), file_info)
+        Ok((RawBitmap::from_rgba(pixels, width, height), file_info))
     }
 
     pub fn needs_redraw(&self) -> bool {
@@ -243,6 +271,9 @@ impl Plot {
         let path_str_c = CString::new(path.as_ref().as_os_str().as_encoded_bytes()).unwrap();
 
         let plot = unsafe { splt_create(path_str_c.as_ptr()) };
+        if plot.is_null() {
+            return plot
+        }
 
         // Setup Spectroplot
         unsafe {

@@ -1,4 +1,4 @@
 # TRansform IQ libs
 
-Note: libs likely need Rust 1.88.0.
+Note: libs likely need Rust 1.95.0.
 
