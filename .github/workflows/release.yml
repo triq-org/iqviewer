@@ -16,7 +16,7 @@ jobs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
       release_version: ${{ env.RELEASE_VERSION }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Create Release info
         # e.g. refs/tags/0.1
         run: |
@@ -31,7 +31,7 @@ jobs:
 
   macos_job:
     needs: release_job
-    runs-on: macos-14
+    runs-on: macos-latest
     name: Build on macOS
     env:
       NAME: IQViewer
@@ -40,7 +40,7 @@ jobs:
         run: |
           cargo --version
           rustc --version
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install rust targets
         run: rustup target add x86_64-apple-darwin aarch64-apple-darwin
       - name: Build
@@ -81,7 +81,7 @@ jobs:
         run: |
           cargo --version
           rustc --version
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install and configure dependencies
         run: |
           sudo apt-get install -qq crossbuild-essential-arm64 crossbuild-essential-armhf mingw-w64
@@ -116,7 +116,7 @@ jobs:
     env:
       NAME: IQViewer
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Compile in NetBSD on amd64
         id: netbsd-vm
         uses: vmactions/netbsd-vm@v1
@@ -127,6 +127,10 @@ jobs:
           run: |
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
             . "$HOME/.cargo/env"
+            cargo --version
+            rustc --version
+            rustup install 1.98.1
+            rustup default 1.98.1
             cargo --version
             rustc --version
             cargo build --release --verbose
@@ -147,7 +151,7 @@ jobs:
     env:
       NAME: IQViewer
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Compile in FreeBSD on amd64
         id: freebsd-vm
         uses: vmactions/freebsd-vm@v1
@@ -159,6 +163,10 @@ jobs:
           run: |
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
             . "$HOME/.cargo/env"
+            cargo --version
+            rustc --version
+            rustup install 1.98.1
+            rustup default 1.98.1
             cargo --version
             rustc --version
             cargo build --release --verbose

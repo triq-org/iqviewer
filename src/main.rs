@@ -9,7 +9,6 @@
 use rfd::{FileDialog, MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
 use std::env;
 use std::path::{Path, PathBuf};
-use std::usize;
 use std::io::Error;
 
 use iced::mouse::ScrollDelta;
@@ -186,6 +185,7 @@ impl Viewer {
     fn window_settings() -> window::Settings {
         let rgba = include_bytes!("../assets/icon.rgba");
         let icon = window::icon::from_rgba(rgba.to_vec(), 512, 512).expect("Bad Icon data");
+        #[cfg(not(target_os = "linux"))]
         let platform_specific = window::settings::PlatformSpecific::default();
         #[cfg(target_os = "linux")]
         let platform_specific = window::settings::PlatformSpecific {

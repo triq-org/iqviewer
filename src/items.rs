@@ -7,7 +7,6 @@ use std::fs;
 use std::io::Error;
 //use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
-use std::usize;
 
 use iced::widget::image::Handle;
 
